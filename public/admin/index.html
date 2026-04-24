@@ -1,367 +1,986 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>OpenFalcon Admin</title>
+  <link rel="icon" href="data:,">
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-           background: #0d1117; color: #e6edf3; padding: 2rem; line-height: 1.5; }
-    .app { max-width: 960px; margin: 0 auto; }
-    h1 { margin-bottom: 1.5rem; color: #c4b5fd; }
-    h2 { margin: 1.5rem 0 0.5rem; color: #a5b4fc; }
-    .hidden { display: none; }
-    .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px;
-            padding: 1.5rem; margin-bottom: 1rem; }
-    label { display: block; margin-bottom: 0.3rem; font-weight: 500; font-size: 0.9rem; color: #9ca3af; }
-    input, select, textarea { width: 100%; padding: 0.6rem; background: #0d1117;
-            border: 1px solid #30363d; border-radius: 6px; color: #e6edf3; font-size: 0.95rem;
-            font-family: inherit; margin-bottom: 0.75rem; }
-    textarea { min-height: 120px; font-family: monospace; }
-    button { background: #2563eb; color: white; border: none; padding: 0.6rem 1.2rem;
-             border-radius: 6px; cursor: pointer; font-size: 0.95rem; font-weight: 500; }
-    button:hover { background: #1d4ed8; }
-    button.danger { background: #dc2626; }
-    button.secondary { background: #374151; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem; }
-    .stat { text-align: center; padding: 1rem; background: #0d1117; border-radius: 6px; }
-    .stat-num { font-size: 2rem; font-weight: 700; color: #c4b5fd; }
-    .stat-label { font-size: 0.85rem; color: #9ca3af; }
-    table { width: 100%; border-collapse: collapse; }
-    th, td { padding: 0.5rem; text-align: left; border-bottom: 1px solid #30363d; font-size: 0.9rem; }
-    th { background: #0d1117; color: #9ca3af; font-weight: 500; }
-    .row { display: flex; gap: 0.5rem; align-items: center; }
-    .err { color: #f87171; margin-top: 0.5rem; }
-    .ok { color: #4ade80; margin-top: 0.5rem; }
+    /* ============================================================
+     * THEME SYSTEM
+     * Every color is a CSS variable. Themes swap variable values.
+     * Default theme = "stage" (dark). Light variant via .theme-light.
+     * Future themes (christmas/halloween/easter) re-map these.
+     * ============================================================ */
+    :root, .theme-stage-dark {
+      --bg: #0a1428;
+      --bg-elevated: #14233f;
+      --bg-tertiary: #1a2c4f;
+      --bg-input: #0d1b35;
+      --border: #1e3050;
+      --border-hover: #2c4773;
 
-    /* Settings tabs */
-    .tabs { display: flex; gap: 0.25rem; border-bottom: 1px solid #30363d; margin-bottom: 1rem;
-            flex-wrap: wrap; }
-    .tab { padding: 0.6rem 1rem; cursor: pointer; color: #9ca3af; border-bottom: 2px solid transparent;
-           font-size: 0.9rem; }
-    .tab.active { color: #c4b5fd; border-bottom-color: #c4b5fd; font-weight: 500; }
-    .tab-content { display: none; }
-    .tab-content.active { display: block; }
+      --text: #e8eef7;
+      --text-muted: #8b9bb4;
+      --text-dim: #5a6a85;
 
-    .setting-row { display: grid; grid-template-columns: 1fr auto; gap: 1rem; align-items: start;
-                   padding: 1rem 0; border-bottom: 1px solid #21262d; }
-    .setting-row:last-child { border-bottom: none; }
-    .setting-label { font-weight: 500; color: #e6edf3; font-size: 0.95rem; margin-bottom: 0.25rem; }
-    .setting-desc { font-size: 0.85rem; color: #9ca3af; line-height: 1.4; }
-    .setting-control { min-width: 140px; }
-    .setting-control input, .setting-control select { margin: 0; }
+      --accent: #ef4444;          /* primary action — red light */
+      --accent-hover: #dc2626;
+      --accent-text: #ffffff;
+      --accent-soft: rgba(239,68,68,0.15);
 
-    /* Toggle switch */
-    .toggle { position: relative; display: inline-block; width: 50px; height: 26px; margin: 0; }
-    .toggle input { opacity: 0; width: 0; height: 0; padding: 0; margin: 0; }
-    .slider { position: absolute; cursor: pointer; inset: 0; background: #374151; border-radius: 26px;
-              transition: 0.2s; }
-    .slider:before { position: absolute; content: ""; height: 20px; width: 20px; left: 3px; bottom: 3px;
-                     background: white; border-radius: 50%; transition: 0.2s; }
-    .toggle input:checked + .slider { background: #059669; }
-    .toggle input:checked + .slider:before { transform: translateX(24px); }
+      --rgb-red: #ef4444;
+      --rgb-green: #22c55e;
+      --rgb-blue: #3b82f6;
+      --rgb-amber: #f59e0b;
+      --rgb-purple: #a855f7;
 
-    /* Sequence table extras */
-    .drag-handle { cursor: grab; color: #6b7280; user-select: none; padding: 0.25rem; font-weight: bold; }
-    .drag-handle:hover { color: #e6edf3; }
-    tr.dragging { opacity: 0.4; }
-    tr.drag-over-top { border-top: 2px solid #a78bfa; }
-    tr.drag-over-bottom { border-bottom: 2px solid #a78bfa; }
-    .art-thumb { width: 44px; height: 44px; border-radius: 6px; background: #0d1117;
-                 object-fit: cover; border: 1px solid #30363d; cursor: pointer; }
-    .art-placeholder { width: 44px; height: 44px; border-radius: 6px; background: #0d1117;
-                       border: 1px dashed #30363d; display: flex; align-items: center; justify-content: center;
-                       color: #6b7280; font-size: 0.75rem; cursor: pointer; }
-    .editable { cursor: text; padding: 0.25rem; border-radius: 4px; }
-    .editable:hover { background: #21262d; }
-    .editable:focus { outline: 2px solid #a78bfa; background: #0d1117; }
+      --status-success: #22c55e;
+      --status-success-soft: rgba(34,197,94,0.15);
+      --status-warning: #f59e0b;
+      --status-warning-soft: rgba(245,158,11,0.15);
+      --status-danger: #ef4444;
+      --status-danger-soft: rgba(239,68,68,0.15);
+      --status-neutral: #6b7280;
+      --status-neutral-soft: rgba(107,114,128,0.2);
 
-    /* Template list */
-    .tpl-item { padding: 0.6rem 0.75rem; border-bottom: 1px solid #21262d; cursor: pointer;
-                font-size: 0.9rem; display: flex; align-items: center; gap: 0.4rem; }
-    .tpl-item:hover { background: #21262d; }
-    .tpl-item.selected { background: #1e3a5f; color: #e6edf3; }
-    .tpl-item .tpl-badge { font-size: 0.7rem; padding: 0.1rem 0.4rem; border-radius: 999px;
-                            background: #065f46; color: #a7f3d0; }
-    .tpl-item .tpl-badge.builtin { background: #374151; color: #9ca3af; }
+      --shadow-card: 0 1px 3px rgba(0,0,0,0.3), 0 1px 2px rgba(0,0,0,0.2);
+      --shadow-elevated: 0 4px 12px rgba(0,0,0,0.4);
+    }
+
+    .theme-stage-light {
+      --bg: #f5f7fb;
+      --bg-elevated: #ffffff;
+      --bg-tertiary: #ebf0f7;
+      --bg-input: #ffffff;
+      --border: #d8dfeb;
+      --border-hover: #b0bbcd;
+
+      --text: #1a2c4f;
+      --text-muted: #5a6a85;
+      --text-dim: #8b9bb4;
+
+      --accent: #dc2626;
+      --accent-hover: #b91c1c;
+      --accent-text: #ffffff;
+      --accent-soft: rgba(220,38,38,0.1);
+
+      --rgb-red: #dc2626;
+      --rgb-green: #16a34a;
+      --rgb-blue: #2563eb;
+      --rgb-amber: #d97706;
+      --rgb-purple: #9333ea;
+
+      --status-success: #16a34a;
+      --status-success-soft: rgba(22,163,74,0.12);
+      --status-warning: #d97706;
+      --status-warning-soft: rgba(217,119,6,0.12);
+      --status-danger: #dc2626;
+      --status-danger-soft: rgba(220,38,38,0.1);
+      --status-neutral: #6b7280;
+      --status-neutral-soft: rgba(107,114,128,0.12);
+
+      --shadow-card: 0 1px 2px rgba(0,0,0,0.04), 0 1px 1px rgba(0,0,0,0.03);
+      --shadow-elevated: 0 4px 12px rgba(0,0,0,0.08);
+    }
+
+    /* ============================================================
+     * BASE STYLES
+     * ============================================================ */
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      transition: background 0.2s, color 0.2s;
+    }
+    .hidden { display: none !important; }
+
+    /* ============================================================
+     * LOGIN VIEW
+     * ============================================================ */
+    #loginView {
+      max-width: 420px;
+      margin: 5rem auto;
+      padding: 2rem;
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      box-shadow: var(--shadow-elevated);
+    }
+    #loginView h1 {
+      margin: 0 0 0.5rem;
+      font-size: 1.6rem;
+      color: var(--text);
+    }
+    #loginView .subtitle {
+      color: var(--text-muted);
+      margin: 0 0 1.5rem;
+      font-size: 0.9rem;
+    }
+    #loginView input {
+      width: 100%;
+      padding: 0.75rem;
+      margin-bottom: 0.75rem;
+      background: var(--bg-input);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 0.95rem;
+    }
+    #loginView button {
+      width: 100%;
+      padding: 0.75rem;
+      background: var(--accent);
+      color: var(--accent-text);
+      border: none;
+      border-radius: 6px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    #loginView button:hover { background: var(--accent-hover); }
+    #loginMsg { margin-top: 0.75rem; font-size: 0.9rem; min-height: 1.2em; }
+    #loginMsg.error { color: var(--status-danger); }
+    #loginMsg.ok { color: var(--status-success); }
+
+    /* ============================================================
+     * APP HEADER (sticky)
+     * ============================================================ */
+    .app-header {
+      background: linear-gradient(180deg, var(--bg-elevated) 0%, var(--bg) 100%);
+      border-bottom: 1px solid var(--border);
+      padding: 0.85rem 1.25rem;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+    .app-brand {
+      font-size: 1.2rem;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+    }
+    .app-brand .app-version {
+      font-size: 0.7rem;
+      color: var(--text-dim);
+      font-weight: 400;
+      margin-left: 0.4rem;
+    }
+    .mode-pill {
+      font-size: 0.72rem;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+    }
+    .mode-pill.voting { background: var(--rgb-red); color: #fff; box-shadow: 0 0 12px var(--accent-soft); }
+    .mode-pill.jukebox { background: var(--rgb-blue); color: #fff; box-shadow: 0 0 12px rgba(59,130,246,0.3); }
+    .mode-pill.off { background: var(--status-neutral); color: #fff; }
+    .header-spacer { margin-left: auto; }
+    .header-meta {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      display: flex;
+      gap: 0.75rem;
+      align-items: center;
+    }
+    .theme-toggle {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: 6px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.85rem;
+    }
+    .theme-toggle:hover { color: var(--text); border-color: var(--border-hover); }
+
+    /* ============================================================
+     * STATUS STRIP
+     * ============================================================ */
+    .status-strip {
+      background: var(--bg-tertiary);
+      border-bottom: 1px solid var(--border);
+      padding: 0.6rem 1.25rem;
+      display: flex;
+      align-items: center;
+      gap: 1.25rem;
+      font-size: 0.82rem;
+      flex-wrap: wrap;
+    }
+    .status-strip .strip-item {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      color: var(--text-muted);
+    }
+    .status-strip .strip-item .strip-value {
+      color: var(--text);
+      font-weight: 500;
+    }
+    .strip-rgb-dots {
+      display: inline-flex;
+      gap: 3px;
+    }
+    .strip-rgb-dots span {
+      width: 6px; height: 6px; border-radius: 50%;
+    }
+    .strip-rgb-dots .d1 { background: var(--rgb-red); }
+    .strip-rgb-dots .d2 { background: var(--rgb-green); }
+    .strip-rgb-dots .d3 { background: var(--rgb-blue); }
+    .plugin-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--status-neutral);
+      display: inline-block;
+    }
+    .plugin-dot.online { background: var(--status-success); box-shadow: 0 0 6px var(--status-success); }
+    .plugin-dot.offline { background: var(--status-danger); }
+
+    /* ============================================================
+     * TAB NAV
+     * ============================================================ */
+    .tab-nav {
+      background: var(--bg);
+      border-bottom: 1px solid var(--border);
+      padding: 0 1.25rem;
+      display: flex;
+      gap: 0.25rem;
+      overflow-x: auto;
+    }
+    .tab-btn {
+      padding: 0.85rem 1.25rem;
+      font-size: 0.9rem;
+      font-weight: 500;
+      color: var(--text-muted);
+      cursor: pointer;
+      border: none;
+      background: transparent;
+      border-bottom: 3px solid transparent;
+      white-space: nowrap;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .tab-btn:hover { color: var(--text); }
+    .tab-btn.active {
+      color: var(--text);
+      border-bottom-color: var(--accent);
+    }
+
+    /* ============================================================
+     * MAIN CONTENT
+     * ============================================================ */
+    main {
+      padding: 1.5rem 1.25rem 3rem;
+      max-width: 1280px;
+      margin: 0 auto;
+    }
+    .tab-pane { display: none; }
+    .tab-pane.active { display: block; }
+
+    /* ============================================================
+     * CARDS — refined for the new theme
+     * ============================================================ */
+    .card {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.25rem;
+      margin-bottom: 1.25rem;
+      box-shadow: var(--shadow-card);
+    }
+    .card h2 {
+      margin: 0 0 1rem;
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: var(--text);
+      letter-spacing: -0.01em;
+    }
+    .card h3 {
+      margin: 1rem 0 0.6rem;
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .card-accent-red { border-left: 3px solid var(--rgb-red); }
+    .card-accent-green { border-left: 3px solid var(--rgb-green); }
+    .card-accent-blue { border-left: 3px solid var(--rgb-blue); }
+    .card-accent-amber { border-left: 3px solid var(--rgb-amber); }
+    .card-accent-purple { border-left: 3px solid var(--rgb-purple); }
+
+    /* ============================================================
+     * FORMS
+     * ============================================================ */
+    label {
+      display: block;
+      margin-bottom: 0.4rem;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      font-weight: 500;
+    }
+    input[type="text"], input[type="password"], input[type="number"],
+    input[type="email"], input[type="url"], select, textarea {
+      width: 100%;
+      padding: 0.55rem 0.75rem;
+      background: var(--bg-input);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-size: 0.9rem;
+      font-family: inherit;
+      transition: border-color 0.15s;
+    }
+    input:focus, select:focus, textarea:focus {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px var(--accent-soft);
+    }
+    input[type="checkbox"] {
+      width: 18px; height: 18px;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+    .row {
+      display: flex;
+      gap: 0.75rem;
+      align-items: center;
+      margin-bottom: 0.75rem;
+      flex-wrap: wrap;
+    }
+    .row label { margin-bottom: 0; }
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.75rem 1.25rem;
+    }
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.75rem 1.25rem;
+    }
+    @media (max-width: 700px) {
+      .grid-2, .grid-3 { grid-template-columns: 1fr; }
+    }
+
+    /* ============================================================
+     * BUTTONS
+     * ============================================================ */
+    button {
+      padding: 0.55rem 1rem;
+      background: var(--accent);
+      color: var(--accent-text);
+      border: none;
+      border-radius: 6px;
+      font-size: 0.88rem;
+      font-weight: 500;
+      cursor: pointer;
+      font-family: inherit;
+      transition: background 0.15s, transform 0.1s;
+    }
+    button:hover { background: var(--accent-hover); }
+    button:active { transform: translateY(1px); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    button.secondary {
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--border);
+    }
+    button.secondary:hover {
+      background: var(--bg-tertiary);
+      border-color: var(--border-hover);
+    }
+    button.danger {
+      background: var(--status-danger);
+      color: #fff;
+    }
+    button.success {
+      background: var(--status-success);
+      color: #fff;
+    }
+
+    /* ============================================================
+     * STAT CARDS (Dashboard)
+     * ============================================================ */
+    .stat-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 0.85rem;
+      margin-bottom: 1.25rem;
+    }
+    .stat {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--rgb-blue);
+      border-radius: 8px;
+      padding: 0.85rem 1rem;
+      box-shadow: var(--shadow-card);
+    }
+    .stat-label {
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      font-weight: 600;
+    }
+    .stat-value {
+      font-size: 1.75rem;
+      font-weight: 600;
+      color: var(--text);
+      margin-top: 0.25rem;
+      line-height: 1.1;
+    }
+    .stat.s-red { border-left-color: var(--rgb-red); }
+    .stat.s-green { border-left-color: var(--rgb-green); }
+    .stat.s-amber { border-left-color: var(--rgb-amber); }
+    .stat.s-purple { border-left-color: var(--rgb-purple); }
+
+    /* ============================================================
+     * TABLES
+     * ============================================================ */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+    }
+    thead tr {
+      background: var(--bg-tertiary);
+    }
+    th {
+      text-align: left;
+      padding: 0.6rem 0.75rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      border-bottom: 1px solid var(--border);
+    }
+    td {
+      padding: 0.6rem 0.75rem;
+      border-bottom: 1px solid var(--border);
+      color: var(--text);
+      vertical-align: middle;
+    }
+    tbody tr:hover { background: var(--bg-tertiary); }
+    tbody tr.dragging { opacity: 0.4; }
+    tbody tr.drag-over-top { border-top: 2px solid var(--accent); }
+    tbody tr.drag-over-bottom { border-bottom: 2px solid var(--accent); }
+
+    /* ============================================================
+     * UTILITIES
+     * ============================================================ */
+    .muted { color: var(--text-muted); font-size: 0.85rem; }
+    .pill {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .pill-success { background: var(--status-success-soft); color: var(--status-success); }
+    .pill-warning { background: var(--status-warning-soft); color: var(--status-warning); }
+    .pill-danger { background: var(--status-danger-soft); color: var(--status-danger); }
+    .pill-neutral { background: var(--status-neutral-soft); color: var(--text-muted); }
+
+    /* Image thumbs / editable spans (carry over from old admin) */
+    .art-thumb { width: 44px; height: 44px; border-radius: 6px; background: var(--bg-input);
+                 object-fit: cover; border: 1px solid var(--border); cursor: pointer; }
+    .art-placeholder { width: 44px; height: 44px; border-radius: 6px; background: var(--bg-input);
+                       border: 1px dashed var(--border); display: flex; align-items: center; justify-content: center;
+                       color: var(--text-dim); font-size: 0.7rem; cursor: pointer; }
+    .editable { cursor: text; padding: 0.25rem 0.4rem; border-radius: 4px; min-width: 60px; display: inline-block; }
+    .editable:hover { background: var(--bg-tertiary); }
+    .editable:focus { outline: 2px solid var(--accent); background: var(--bg-input); }
+
+    /* Settings sub-tabs (kept from old admin) */
+    .sub-tabs {
+      display: flex;
+      gap: 0.25rem;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 1rem;
+    }
+    .sub-tab {
+      padding: 0.6rem 1rem;
+      cursor: pointer;
+      color: var(--text-muted);
+      font-size: 0.88rem;
+      font-weight: 500;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+    }
+    .sub-tab:hover { color: var(--text); }
+    .sub-tab.active {
+      color: var(--text);
+      border-bottom-color: var(--accent);
+    }
+    .sub-tab-pane { display: none; }
+    .sub-tab-pane.active { display: block; }
+
+    /* Template list (Viewer Page tab) */
+    .tpl-item { padding: 0.6rem 0.75rem; border-bottom: 1px solid var(--border); cursor: pointer;
+                font-size: 0.88rem; display: flex; align-items: center; gap: 0.4rem; }
+    .tpl-item:hover { background: var(--bg-tertiary); }
+    .tpl-item.selected { background: var(--accent-soft); color: var(--text); }
+    .tpl-badge { font-size: 0.65rem; padding: 1px 6px; border-radius: 999px;
+                 background: var(--status-success-soft); color: var(--status-success); font-weight: 700; }
+    .tpl-badge.builtin { background: var(--status-neutral-soft); color: var(--text-muted); }
+
+    /* Now playing inline strip (Dashboard) */
+    .now-playing-card {
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.85rem 1rem;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    .np-pulse {
+      width: 10px; height: 10px; border-radius: 50%;
+      background: var(--rgb-red);
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(1.2); }
+    }
+
+    /* Toggle switches inside sequences table */
+    .toggle { position: relative; display: inline-block; width: 40px; height: 22px; }
+    .toggle input { opacity: 0; width: 0; height: 0; }
+    .toggle .slider {
+      position: absolute; cursor: pointer; inset: 0;
+      background: var(--status-neutral); border-radius: 22px; transition: 0.15s;
+    }
+    .toggle .slider::before {
+      position: absolute; content: ""; height: 16px; width: 16px;
+      left: 3px; bottom: 3px; background: white;
+      border-radius: 50%; transition: 0.15s;
+    }
+    .toggle input:checked + .slider { background: var(--status-success); }
+    .toggle input:checked + .slider::before { transform: translateX(18px); }
+
+    .drag-handle { cursor: grab; color: var(--text-dim); user-select: none; text-align: center; }
+    .drag-handle:active { cursor: grabbing; }
+
+    /* Toggle switches inside sequence table rows (mini iOS-style) */
+    .toggle { position: relative; display: inline-block; width: 36px; height: 20px; vertical-align: middle; }
+    .toggle input { opacity: 0; width: 0; height: 0; position: absolute; }
+    .toggle .slider {
+      position: absolute; cursor: pointer; inset: 0;
+      background: var(--status-neutral); border-radius: 20px; transition: 0.2s;
+    }
+    .toggle .slider::before {
+      content: ""; position: absolute; height: 14px; width: 14px;
+      left: 3px; bottom: 3px; background: white; border-radius: 50%; transition: 0.2s;
+    }
+    .toggle input:checked + .slider { background: var(--status-success); }
+    .toggle input:checked + .slider::before { transform: translateX(16px); }
+
+    /* Code/token display */
+    code {
+      font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+      background: var(--bg-input);
+      padding: 0.1rem 0.4rem;
+      border-radius: 4px;
+      font-size: 0.85em;
+      border: 1px solid var(--border);
+    }
   </style>
   <script src="https://unpkg.com/monaco-editor@0.45.0/min/vs/loader.js"></script>
 </head>
-<body>
-  <div class="app">
-    <h1>🦅 OpenFalcon Admin</h1>
+<body class="theme-stage-dark">
 
-    <div id="loginView" class="card hidden">
-      <h2>Log in</h2>
-      <p style="color:#9ca3af; font-size:0.9rem; margin-bottom:0.75rem;">
-        First time? Any password you enter will be saved as the admin password.
-      </p>
-      <input type="password" id="loginPassword" placeholder="Admin password" />
-      <button onclick="login()">Log in</button>
-      <div id="loginMsg"></div>
-    </div>
-
-    <div id="appView" class="hidden">
-      <div class="card">
-        <h2>Show Control</h2>
-
-        <div class="row" style="align-items: center; margin-bottom: 0.75rem;">
-          <strong style="font-size: 1.1rem;">Viewer Control:</strong>
-          <span id="viewerControlStatus" style="padding: 0.25rem 0.75rem; border-radius: 999px; background: #374151; color: #e6edf3; font-weight: 600; font-size: 0.9rem;">—</span>
-          <button id="toggleViewerBtn" onclick="toggleViewerControl()" style="margin-left: auto;">Toggle</button>
-        </div>
-
-        <div class="row">
-          <label style="margin:0;">Mode:</label>
-          <select id="modeSelect" onchange="updateMode(this.value)">
-            <option value="OFF">Off</option>
-            <option value="VOTING">Voting</option>
-            <option value="JUKEBOX">Jukebox</option>
-          </select>
-          <button class="secondary" onclick="resetVotes()">Reset Votes</button>
-          <button class="secondary" onclick="purgeQueue()">Purge Queue</button>
-        </div>
-      </div>
-
-      <div class="card">
-        <h2>Settings</h2>
-        <div class="tabs">
-          <div class="tab active" data-tab="jukebox" onclick="switchTab('jukebox')">Jukebox</div>
-          <div class="tab" data-tab="voting" onclick="switchTab('voting')">Voting</div>
-          <div class="tab" data-tab="safeguards" onclick="switchTab('safeguards')">Interaction Safeguards</div>
-        </div>
-
-        <!-- JUKEBOX TAB -->
-        <div class="tab-content active" data-tab="jukebox">
-          <div class="setting-row">
-            <div>
-              <div class="setting-label">Jukebox Queue Depth</div>
-              <div class="setting-desc">Maximum pending requests in the queue. Use 0 for unlimited.</div>
-            </div>
-            <div class="setting-control">
-              <input type="number" id="cfg_jukebox_queue_depth" min="0" onchange="saveSetting('jukebox_queue_depth', parseInt(this.value) || 0)" />
-            </div>
-          </div>
-          <div class="setting-row">
-            <div>
-              <div class="setting-label">Jukebox Sequence Request Limit</div>
-              <div class="setting-desc">Max times the same sequence can be in the queue. Use 0 to allow unlimited.</div>
-            </div>
-            <div class="setting-control">
-              <input type="number" id="cfg_jukebox_sequence_request_limit" min="0" onchange="saveSetting('jukebox_sequence_request_limit', parseInt(this.value) || 0)" />
-            </div>
-          </div>
-          <div class="setting-row">
-            <div>
-              <div class="setting-label">Prevent Multiple Requests</div>
-              <div class="setting-desc">Blocks a viewer from making more than one request while their song is queued or playing.</div>
-            </div>
-            <div class="setting-control">
-              <label class="toggle"><input type="checkbox" id="cfg_prevent_multiple_requests" onchange="saveSetting('prevent_multiple_requests', this.checked ? 1 : 0)" /><span class="slider"></span></label>
-            </div>
-          </div>
-        </div>
-
-        <!-- VOTING TAB -->
-        <div class="tab-content" data-tab="voting">
-          <div class="setting-row">
-            <div>
-              <div class="setting-label">Prevent Multiple Votes</div>
-              <div class="setting-desc">Blocks a viewer from voting more than once per round.</div>
-            </div>
-            <div class="setting-control">
-              <label class="toggle"><input type="checkbox" id="cfg_prevent_multiple_votes" onchange="saveSetting('prevent_multiple_votes', this.checked ? 1 : 0)" /><span class="slider"></span></label>
-            </div>
-          </div>
-          <div class="setting-row">
-            <div>
-              <div class="setting-label">Reset Votes After Round</div>
-              <div class="setting-desc">Resets all vote counts to zero after each voting round. If off, votes carry forward.</div>
-            </div>
-            <div class="setting-control">
-              <label class="toggle"><input type="checkbox" id="cfg_reset_votes_after_round" onchange="saveSetting('reset_votes_after_round', this.checked ? 1 : 0)" /><span class="slider"></span></label>
-            </div>
-          </div>
-        </div>
-
-        <!-- SAFEGUARDS TAB -->
-        <div class="tab-content" data-tab="safeguards">
-          <div class="setting-row">
-            <div>
-              <div class="setting-label">Play PSA</div>
-              <div class="setting-desc">Plays a PSA sequence after a specified number of viewer interactions.</div>
-            </div>
-            <div class="setting-control">
-              <label class="toggle"><input type="checkbox" id="cfg_play_psa_enabled" onchange="saveSetting('play_psa_enabled', this.checked ? 1 : 0)" /><span class="slider"></span></label>
-            </div>
-          </div>
-          <div class="setting-row">
-            <div>
-              <div class="setting-label">PSA Frequency</div>
-              <div class="setting-desc">Play a PSA every N viewer interactions (votes or requests). Mark sequences as PSA via the Sequences list.</div>
-            </div>
-            <div class="setting-control">
-              <input type="number" id="cfg_psa_frequency" min="1" onchange="saveSetting('psa_frequency', parseInt(this.value) || 5)" />
-            </div>
-          </div>
-          <div class="setting-row">
-            <div>
-              <div class="setting-label">Check Viewer Present</div>
-              <div class="setting-desc">Requires viewers to be near the show (via GPS) before they can vote or request. Strict mode — blocks if check fails.</div>
-            </div>
-            <div class="setting-control">
-              <label class="toggle"><input type="checkbox" id="cfg_check_viewer_present" onchange="saveSetting('check_viewer_present', this.checked ? 1 : 0)" /><span class="slider"></span></label>
-            </div>
-          </div>
-          <div class="setting-row">
-            <div>
-              <div class="setting-label">Show Location</div>
-              <div class="setting-desc">GPS coordinates of the show. Use the "Detect" button from a device at the show location, or paste in manually.</div>
-            </div>
-            <div class="setting-control" style="min-width: 260px;">
-              <div class="row" style="gap:0.3rem;">
-                <input type="number" step="0.000001" id="cfg_show_latitude" placeholder="Latitude" onchange="saveSetting('show_latitude', parseFloat(this.value) || 0)" style="margin:0;" />
-                <input type="number" step="0.000001" id="cfg_show_longitude" placeholder="Longitude" onchange="saveSetting('show_longitude', parseFloat(this.value) || 0)" style="margin:0;" />
-              </div>
-              <button class="secondary" style="margin-top:0.4rem; padding:0.4rem 0.8rem; font-size:0.85rem;" onclick="detectMyLocation()">Detect my location</button>
-            </div>
-          </div>
-          <div class="setting-row">
-            <div>
-              <div class="setting-label">Check Radius (miles)</div>
-              <div class="setting-desc">How close viewers must be to the show location. Default 0.5 miles.</div>
-            </div>
-            <div class="setting-control">
-              <input type="number" step="0.1" min="0" id="cfg_check_radius_miles" onchange="saveSetting('check_radius_miles', parseFloat(this.value) || 0.5)" />
-            </div>
-          </div>
-          <div class="setting-row">
-            <div>
-              <div class="setting-label">Hide Sequence After Played</div>
-              <div class="setting-desc">After a requested sequence finishes, hide it from the list until this many other sequences have played. Use 0 to never hide.</div>
-            </div>
-            <div class="setting-control">
-              <input type="number" min="0" id="cfg_hide_sequence_after_played" onchange="saveSetting('hide_sequence_after_played', parseInt(this.value) || 0)" />
-            </div>
-          </div>
-          <div class="setting-row">
-            <div>
-              <div class="setting-label">Block Viewer IP Addresses</div>
-              <div class="setting-desc">Comma-separated list of IPs that can't vote or request. Use this to block abusers.</div>
-            </div>
-            <div class="setting-control" style="min-width: 260px;">
-              <input type="text" id="cfg_blocked_ips" placeholder="1.2.3.4, 5.6.7.8" onchange="saveSetting('blocked_ips', this.value)" />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="card">
-        <h2>Show Token (for OpenFalcon Plugin)</h2>
-        <p style="color:#9ca3af; font-size:0.9rem; margin-bottom:0.5rem;">
-          Paste this into the <code>Show Token</code> field of the OpenFalcon plugin on your FPP.
-        </p>
-        <input type="text" id="showToken" readonly />
-        <p style="color:#9ca3af; font-size:0.85rem; margin-top:0.5rem;">
-          Server URL for plugin: <code id="pluginUrl"></code>
-        </p>
-      </div>
-
-      <div class="card">
-        <h2>Stats</h2>
-        <div class="grid">
-          <div class="stat"><div class="stat-num" id="statActive">0</div><div class="stat-label">Active viewers</div></div>
-          <div class="stat"><div class="stat-num" id="statTotal">0</div><div class="stat-label">Total unique</div></div>
-          <div class="stat"><div class="stat-num" id="statVotes">0</div><div class="stat-label">Votes (round)</div></div>
-          <div class="stat"><div class="stat-num" id="statQueue">0</div><div class="stat-label">Queue length</div></div>
-          <div class="stat"><div class="stat-num" id="statPlays">0</div><div class="stat-label">Total plays</div></div>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="row" style="justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
-          <h2 style="margin: 0;">Sequences <span id="sequenceCount" style="color:#9ca3af; font-weight: normal; font-size: 0.9rem;"></span></h2>
-          <div class="row" style="gap: 0.5rem;">
-            <button class="secondary" onclick="sortSequencesAlphabetically()">Sort Alphabetically</button>
-            <button class="danger" onclick="deleteInactiveSequences()">Delete Inactive</button>
-          </div>
-        </div>
-        <p style="color:#9ca3af; font-size:0.85rem; margin-bottom:0.5rem;">
-          Drag rows by the <span style="color:#e6edf3;">⋮⋮</span> handle to reorder. The order here is also the playlist index sent to FPP.
-        </p>
-        <table id="sequencesTable">
-          <thead>
-            <tr>
-              <th style="width: 24px;"></th>
-              <th style="width: 60px;">Art</th>
-              <th>Display Name</th>
-              <th>FPP Name</th>
-              <th>Artist</th>
-              <th>Visible</th>
-              <th>Vote</th>
-              <th>Jukebox</th>
-              <th>PSA</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody id="sequencesBody"></tbody>
-        </table>
-        <h3 style="margin-top:1rem;">Add Sequence</h3>
-        <div class="row" style="flex-wrap:wrap;">
-          <input type="text" id="newSeqName" placeholder="FPP sequence name" style="flex:1;" />
-          <input type="text" id="newSeqDisplay" placeholder="Display name" style="flex:1;" />
-          <input type="text" id="newSeqArtist" placeholder="Artist (optional)" style="flex:1;" />
-          <button onclick="addSequence()">Add</button>
-        </div>
-      </div>
-
-      <div class="card">
-        <h2>Top Sequences (all time)</h2>
-        <table>
-          <thead><tr><th>Sequence</th><th>Plays</th></tr></thead>
-          <tbody id="topBody"></tbody>
-        </table>
-      </div>
-
-      <div class="card">
-        <div class="row" style="justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
-          <h2 style="margin: 0;">Viewer Page</h2>
-          <div class="row" style="gap: 0.5rem;">
-            <button class="secondary" onclick="newTemplate()">+ New</button>
-            <button class="secondary" onclick="duplicateTemplate()" id="tplDupBtn" disabled>Duplicate</button>
-            <button onclick="activateTemplate()" id="tplActivateBtn" disabled>Set Active</button>
-            <button class="secondary" onclick="saveTemplate()" id="tplSaveBtn" disabled>Save</button>
-            <button class="danger" onclick="deleteTemplate()" id="tplDeleteBtn" disabled>Delete</button>
-          </div>
-        </div>
-
-        <p style="color:#9ca3af; font-size:0.85rem; margin-bottom:0.75rem;">
-          Edit your viewer page HTML. Supports Remote Falcon placeholders like <code>{PLAYLISTS}</code>, <code>{NOW_PLAYING}</code>, <code>{JUKEBOX_QUEUE}</code>, and mode containers like <code>{jukebox-dynamic-container}</code>.
-          <a href="/" target="_blank" style="color: #a78bfa;">Open viewer page →</a>
-        </p>
-
-        <div style="display: grid; grid-template-columns: 240px 1fr; gap: 1rem;">
-          <div style="border: 1px solid #30363d; border-radius: 6px; overflow: hidden; max-height: 480px; overflow-y: auto;">
-            <div style="padding: 0.5rem 0.75rem; background: #0d1117; border-bottom: 1px solid #30363d; font-size: 0.85rem; color: #9ca3af;">Templates</div>
-            <div id="templateList"></div>
-          </div>
-
-          <div>
-            <div style="display: flex; gap: 0.5rem; margin-bottom: 0.5rem; align-items: center;">
-              <input type="text" id="tplName" placeholder="Template name" style="margin: 0; flex: 1;" />
-              <span id="tplMeta" style="font-size: 0.85rem; color: #9ca3af;"></span>
-            </div>
-            <div id="monacoContainer" style="height: 420px; border: 1px solid #30363d; border-radius: 6px; overflow: hidden;"></div>
-          </div>
-        </div>
-      </div>
-
-      <div class="row">
-        <button class="secondary" onclick="logout()">Log out</button>
-      </div>
-    </div>
+  <!-- ============================================================
+       LOGIN VIEW
+       ============================================================ -->
+  <div id="loginView" class="hidden">
+    <h1>OpenFalcon Admin</h1>
+    <p class="subtitle">First time? Any password you enter will be saved as the admin password.</p>
+    <input type="password" id="loginPassword" placeholder="Admin password" />
+    <button onclick="login()">Log in</button>
+    <div id="loginMsg"></div>
   </div>
+
+  <!-- ============================================================
+       APP VIEW
+       ============================================================ -->
+  <div id="appView" class="hidden">
+
+    <!-- Sticky header -->
+    <header class="app-header">
+      <span class="app-brand">OpenFalcon <span class="app-version">v0.7.0</span></span>
+      <span id="modePill" class="mode-pill off">OFF</span>
+      <span class="header-spacer"></span>
+      <span class="header-meta">
+        <span id="headerViewerCount"><strong>0</strong> viewers</span>
+        <span>·</span>
+        <span><span id="headerPluginDot" class="plugin-dot offline"></span> <span id="headerPluginText">plugin</span></span>
+      </span>
+      <button class="theme-toggle" id="themeToggleBtn" onclick="toggleTheme()" title="Toggle light/dark">◐</button>
+      <button class="secondary" onclick="logout()">Log out</button>
+    </header>
+
+    <!-- Persistent status strip -->
+    <div class="status-strip">
+      <span class="strip-item">
+        <span class="strip-rgb-dots"><span class="d1"></span><span class="d2"></span><span class="d3"></span></span>
+        <span>Now playing</span>
+        <span class="strip-value" id="stripNowPlaying">—</span>
+      </span>
+      <span class="strip-item">
+        <span>Up next</span>
+        <span class="strip-value" id="stripNextUp">—</span>
+      </span>
+      <span class="strip-item" style="margin-left: auto;">
+        <span>Queue</span>
+        <span class="strip-value" id="stripQueueCount">0</span>
+      </span>
+      <span class="strip-item">
+        <span>Round votes</span>
+        <span class="strip-value" id="stripVoteCount">0</span>
+      </span>
+    </div>
+
+    <!-- Tab nav -->
+    <nav class="tab-nav">
+      <button class="tab-btn active" data-tab="dashboard" onclick="switchMainTab('dashboard')">Dashboard</button>
+      <button class="tab-btn" data-tab="sequences" onclick="switchMainTab('sequences')">Sequences</button>
+      <button class="tab-btn" data-tab="viewer" onclick="switchMainTab('viewer')">Viewer Page</button>
+      <button class="tab-btn" data-tab="settings" onclick="switchMainTab('settings')">Settings</button>
+      <button class="tab-btn" data-tab="plugin" onclick="switchMainTab('plugin')">Plugin</button>
+    </nav>
+
+    <main>
+
+      <!-- ============================================================
+           TAB: DASHBOARD
+           ============================================================ -->
+      <div class="tab-pane active" data-pane="dashboard">
+
+        <div class="now-playing-card" style="margin-bottom: 1.25rem;">
+          <span class="np-pulse"></span>
+          <div>
+            <div class="muted" style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;">Now playing</div>
+            <div id="dashNowPlaying" style="font-size: 1.1rem; font-weight: 600; margin-top: 2px;">—</div>
+          </div>
+          <div style="margin-left: auto; text-align: right;">
+            <div class="muted" style="font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em;">Up next</div>
+            <div id="dashNextUp" style="font-size: 1rem; margin-top: 2px;">—</div>
+          </div>
+        </div>
+
+        <div class="stat-grid">
+          <div class="stat s-green">
+            <div class="stat-label">Active viewers</div>
+            <div class="stat-value" id="statActiveViewers">0</div>
+          </div>
+          <div class="stat s-red">
+            <div class="stat-label">Votes (round)</div>
+            <div class="stat-value" id="statVotes">0</div>
+          </div>
+          <div class="stat s-amber">
+            <div class="stat-label">Queue depth</div>
+            <div class="stat-value" id="statQueue">0</div>
+          </div>
+          <div class="stat s-purple">
+            <div class="stat-label">Sequences played</div>
+            <div class="stat-value" id="statPlayed">0</div>
+          </div>
+          <div class="stat">
+            <div class="stat-label">Total sequences</div>
+            <div class="stat-value" id="statSequences">0</div>
+          </div>
+        </div>
+
+        <div class="card card-accent-red">
+          <h2>Show Control</h2>
+          <div class="row" style="align-items: center;">
+            <strong style="font-size: 1rem;">Viewer Control:</strong>
+            <span id="viewerControlStatus" class="pill pill-neutral">—</span>
+            <button id="toggleViewerBtn" onclick="toggleViewerControl()" style="margin-left: auto;">Toggle</button>
+          </div>
+          <div class="row">
+            <label for="modeSelect" style="margin: 0;">Mode:</label>
+            <select id="modeSelect" onchange="updateMode(this.value)" style="max-width: 180px;">
+              <option value="OFF">Off</option>
+              <option value="VOTING">Voting</option>
+              <option value="JUKEBOX">Jukebox</option>
+            </select>
+            <button class="secondary" onclick="resetVotes()">Reset Votes</button>
+            <button class="secondary" onclick="purgeQueue()">Purge Queue</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Top Sequences (all time)</h2>
+          <table>
+            <thead><tr><th>Sequence</th><th style="width: 80px;">Plays</th></tr></thead>
+            <tbody id="topBody"><tr><td colspan="2" class="muted">Loading…</td></tr></tbody>
+          </table>
+        </div>
+
+      </div>
+
+      <!-- ============================================================
+           TAB: SEQUENCES
+           ============================================================ -->
+      <div class="tab-pane" data-pane="sequences">
+        <div class="card">
+          <div class="row" style="justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+            <h2 style="margin: 0;">Sequences <span id="sequenceCount" class="muted" style="font-weight: normal;"></span></h2>
+            <div class="row" style="gap: 0.5rem; margin: 0;">
+              <button class="secondary" onclick="sortSequencesAlphabetically()">Sort A→Z</button>
+              <button class="secondary" onclick="deleteInactiveSequences()">Delete Inactive</button>
+            </div>
+          </div>
+          <div style="overflow-x: auto;">
+            <table>
+              <thead>
+                <tr>
+                  <th style="width: 30px;"></th>
+                  <th style="width: 60px;">Art</th>
+                  <th>Display Name</th>
+                  <th style="width: 200px;">FPP Name</th>
+                  <th>Artist</th>
+                  <th style="width: 70px;">Visible</th>
+                  <th style="width: 70px;">Vote</th>
+                  <th style="width: 70px;">Jukebox</th>
+                  <th style="width: 60px;">PSA</th>
+                  <th style="width: 60px;"></th>
+                </tr>
+              </thead>
+              <tbody id="sequencesBody"></tbody>
+            </table>
+          </div>
+          <h3>Add Sequence</h3>
+          <div class="row">
+            <input type="text" id="newSeqName" placeholder="FPP sequence name" style="flex:1;" />
+            <input type="text" id="newSeqDisplay" placeholder="Display name" style="flex:1;" />
+            <input type="text" id="newSeqArtist" placeholder="Artist (optional)" style="flex:1;" />
+            <button onclick="addSequence()">Add</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================================================
+           TAB: VIEWER PAGE (Monaco editor + template list)
+           ============================================================ -->
+      <div class="tab-pane" data-pane="viewer">
+        <div class="card">
+          <div class="row" style="justify-content: space-between; align-items: center; margin-bottom: 0.75rem; flex-wrap: wrap; gap: 0.5rem;">
+            <h2 style="margin: 0;">Viewer Page</h2>
+            <div class="row" style="gap: 0.5rem; margin: 0;">
+              <button class="secondary" onclick="newTemplate()">+ New</button>
+              <button class="secondary" onclick="duplicateTemplate()" id="tplDupBtn" disabled>Duplicate</button>
+              <button onclick="activateTemplate()" id="tplActivateBtn" disabled>Set Active</button>
+              <button class="secondary" onclick="saveTemplate()" id="tplSaveBtn" disabled>Save</button>
+              <button class="danger" onclick="deleteTemplate()" id="tplDeleteBtn" disabled>Delete</button>
+            </div>
+          </div>
+          <p class="muted" style="margin-bottom: 0.75rem;">
+            Edit your viewer page HTML. Supports Remote Falcon placeholders like <code>{PLAYLISTS}</code>, <code>{NOW_PLAYING}</code>, <code>{JUKEBOX_QUEUE}</code>, and mode containers like <code>{jukebox-dynamic-container}</code>.
+            <a href="/" target="_blank" style="color: var(--accent);">Open viewer page →</a>
+          </p>
+
+          <div style="display: grid; grid-template-columns: 240px 1fr; gap: 1rem;">
+            <div style="border: 1px solid var(--border); border-radius: 6px; overflow: hidden; max-height: 480px; overflow-y: auto; background: var(--bg-input);">
+              <div style="padding: 0.5rem 0.75rem; background: var(--bg-tertiary); border-bottom: 1px solid var(--border); font-size: 0.78rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em;">Templates</div>
+              <div id="templateList"></div>
+            </div>
+            <div>
+              <div class="row" style="margin-bottom: 0.5rem; align-items: center;">
+                <input type="text" id="tplName" placeholder="Template name" style="flex: 1; margin: 0;" />
+                <span id="tplMeta" class="muted"></span>
+              </div>
+              <div id="monacoContainer" style="height: 460px; border: 1px solid var(--border); border-radius: 6px; overflow: hidden;"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================================================
+           TAB: SETTINGS
+           ============================================================ -->
+      <div class="tab-pane" data-pane="settings">
+        <div class="card">
+          <h2>Settings</h2>
+          <div class="sub-tabs">
+            <div class="sub-tab active" data-subtab="jukebox" onclick="switchTab('jukebox')">Jukebox</div>
+            <div class="sub-tab" data-subtab="voting" onclick="switchTab('voting')">Voting</div>
+            <div class="sub-tab" data-subtab="safeguards" onclick="switchTab('safeguards')">Interaction Safeguards</div>
+          </div>
+
+          <!-- JUKEBOX SETTINGS -->
+          <div class="sub-tab-pane active" data-subtab="jukebox">
+            <div class="grid-2">
+              <div>
+                <label for="cfg_jukebox_queue_depth">Jukebox queue depth (max requests in queue)</label>
+                <input type="number" id="cfg_jukebox_queue_depth" min="0" max="100" onchange="saveSetting('jukebox_queue_depth', this.value)" />
+              </div>
+              <div>
+                <label for="cfg_jukebox_sequence_request_limit">Max requests per viewer per round</label>
+                <input type="number" id="cfg_jukebox_sequence_request_limit" min="0" max="20" onchange="saveSetting('jukebox_sequence_request_limit', this.value)" />
+              </div>
+            </div>
+            <div class="row" style="margin-top: 0.75rem;">
+              <input type="checkbox" id="cfg_prevent_multiple_requests" onchange="saveSetting('prevent_multiple_requests', this.checked ? 1 : 0)" />
+              <label for="cfg_prevent_multiple_requests" style="margin: 0;">Prevent multiple requests for same sequence (until played)</label>
+            </div>
+            <div class="row">
+              <input type="checkbox" id="cfg_hide_sequence_after_played" onchange="saveSetting('hide_sequence_after_played', this.checked ? 1 : 0)" />
+              <label for="cfg_hide_sequence_after_played" style="margin: 0;">Hide sequence from list after played</label>
+            </div>
+          </div>
+
+          <!-- VOTING SETTINGS -->
+          <div class="sub-tab-pane" data-subtab="voting">
+            <div class="row">
+              <input type="checkbox" id="cfg_prevent_multiple_votes" onchange="saveSetting('prevent_multiple_votes', this.checked ? 1 : 0)" />
+              <label for="cfg_prevent_multiple_votes" style="margin: 0;">Limit each viewer to one vote per round</label>
+            </div>
+            <div class="row">
+              <input type="checkbox" id="cfg_reset_votes_after_round" onchange="saveSetting('reset_votes_after_round', this.checked ? 1 : 0)" />
+              <label for="cfg_reset_votes_after_round" style="margin: 0;">Auto-reset votes after winner plays</label>
+            </div>
+          </div>
+
+          <!-- INTERACTION SAFEGUARDS -->
+          <div class="sub-tab-pane" data-subtab="safeguards">
+            <h3>PSA injection</h3>
+            <div class="row">
+              <input type="checkbox" id="cfg_play_psa_enabled" onchange="saveSetting('play_psa_enabled', this.checked ? 1 : 0)" />
+              <label for="cfg_play_psa_enabled" style="margin: 0;">Inject PSA every N interactions</label>
+            </div>
+            <div class="row">
+              <label for="cfg_psa_frequency" style="margin: 0;">Frequency (interactions between PSAs):</label>
+              <input type="number" id="cfg_psa_frequency" min="1" max="100" style="max-width: 100px;" onchange="saveSetting('psa_frequency', this.value)" />
+            </div>
+
+            <h3>GPS proximity check</h3>
+            <div class="row">
+              <input type="checkbox" id="cfg_check_viewer_present" onchange="saveSetting('check_viewer_present', this.checked ? 1 : 0)" />
+              <label for="cfg_check_viewer_present" style="margin: 0;">Require viewers be within radius of show location</label>
+            </div>
+            <div class="grid-3">
+              <div>
+                <label for="cfg_show_latitude">Show latitude</label>
+                <input type="text" id="cfg_show_latitude" onchange="saveSetting('show_latitude', this.value)" />
+              </div>
+              <div>
+                <label for="cfg_show_longitude">Show longitude</label>
+                <input type="text" id="cfg_show_longitude" onchange="saveSetting('show_longitude', this.value)" />
+              </div>
+              <div>
+                <label for="cfg_check_radius_miles">Radius (miles)</label>
+                <input type="number" id="cfg_check_radius_miles" step="0.1" min="0.1" max="50" onchange="saveSetting('check_radius_miles', this.value)" />
+              </div>
+            </div>
+            <div class="row" style="margin-top: 0.5rem;">
+              <button class="secondary" onclick="detectMyLocation()">Detect my current location</button>
+              <span id="locationDetectStatus" class="muted"></span>
+            </div>
+
+            <h3>IP blocking</h3>
+            <label for="cfg_blocked_ips">Blocked IPs (comma-separated, supports CIDR)</label>
+            <textarea id="cfg_blocked_ips" rows="3" placeholder="e.g. 1.2.3.4, 10.0.0.0/24" onchange="saveSetting('blocked_ips', this.value)"></textarea>
+          </div>
+        </div>
+      </div>
+
+      <!-- ============================================================
+           TAB: PLUGIN
+           ============================================================ -->
+      <div class="tab-pane" data-pane="plugin">
+        <div class="card card-accent-blue">
+          <h2>Plugin Status</h2>
+          <div class="grid-2">
+            <div>
+              <label>Connection</label>
+              <div id="pluginConnStatus" class="pill pill-neutral">Unknown</div>
+            </div>
+            <div>
+              <label>Last seen</label>
+              <div id="pluginLastSeen">—</div>
+            </div>
+            <div>
+              <label>Plugin version</label>
+              <div id="pluginVersion">—</div>
+            </div>
+            <div>
+              <label>Last sync</label>
+              <div id="pluginLastSync">—</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <h2>Show Token (for OpenFalcon Plugin)</h2>
+          <p class="muted">Paste this into the FPP plugin's "Show Token" field. Treat it like a password — anyone with it can control your show.</p>
+          <div class="row">
+            <code id="showToken" style="flex: 1; padding: 0.6rem; font-size: 0.85rem; word-break: break-all;">—</code>
+            <button class="secondary" onclick="copyShowToken()">Copy</button>
+          </div>
+          <div id="copyTokenStatus" class="muted" style="margin-top: 0.5rem;"></div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+
+  <script>
+    // ============================================================
+    // THEME SYSTEM
+    // ============================================================
+    function applyTheme(theme) {
+      const body = document.body;
+      body.classList.remove('theme-stage-dark', 'theme-stage-light');
+      body.classList.add('theme-' + theme);
+      localStorage.setItem('openfalcon_theme', theme);
+      const btn = document.getElementById('themeToggleBtn');
+      if (btn) btn.textContent = theme === 'stage-light' ? '☀' : '◐';
+    }
+    function toggleTheme() {
+      const current = localStorage.getItem('openfalcon_theme') || 'stage-dark';
+      const next = current === 'stage-dark' ? 'stage-light' : 'stage-dark';
+      applyTheme(next);
+      // Update Monaco editor theme on the fly if it's loaded
+      if (typeof monaco !== 'undefined' && monaco.editor) {
+        monaco.editor.setTheme(next === 'stage-light' ? 'vs' : 'vs-dark');
+      }
+    }
+    (function initTheme() {
+      const saved = localStorage.getItem('openfalcon_theme') || 'stage-dark';
+      applyTheme(saved);
+    })();
+
+    // ============================================================
+    // MAIN TAB SWITCHER
+    // ============================================================
+    function switchMainTab(name) {
+      document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.tab === name);
+      });
+      document.querySelectorAll('.tab-pane').forEach(pane => {
+        pane.classList.toggle('active', pane.dataset.pane === name);
+      });
+      // Lazy-init Monaco when first visiting Viewer tab
+      if (name === 'viewer') initMonacoIfNeeded();
+    }
+
+    function copyShowToken() {
+      const t = document.getElementById('showToken').textContent;
+      if (!t || t === '—') return;
+      navigator.clipboard.writeText(t).then(() => {
+        const s = document.getElementById('copyTokenStatus');
+        s.textContent = '✓ Copied to clipboard';
+        s.style.color = 'var(--status-success)';
+        setTimeout(() => { s.textContent = ''; }, 2000);
+      });
+    }
+  </script>
 
   <script>
     async function api(path, opts = {}) {
@@ -400,7 +1019,13 @@
     }
 
     async function loadAll() {
-      await Promise.all([loadConfig(), loadStats(), loadSequences(), loadToken(), loadTemplates()]);
+      await Promise.all([
+        (window.loadConfig || loadConfig)(),
+        (window.loadStats || loadStats)(),
+        loadSequences(),
+        (window.loadToken || loadToken)(),
+        loadTemplates()
+      ]);
     }
 
     async function loadConfig() {
@@ -436,8 +1061,8 @@
     }
 
     function switchTab(name) {
-      document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
-      document.querySelectorAll('.tab-content').forEach(c => c.classList.toggle('active', c.dataset.tab === name));
+      document.querySelectorAll('.sub-tab').forEach(t => t.classList.toggle('active', t.dataset.subtab === name));
+      document.querySelectorAll('.sub-tab-pane').forEach(c => c.classList.toggle('active', c.dataset.subtab === name));
     }
 
     async function saveSetting(key, value) {
@@ -477,18 +1102,22 @@
     function updateViewerControlBadge(mode) {
       const badge = document.getElementById('viewerControlStatus');
       const btn = document.getElementById('toggleViewerBtn');
-      if (!badge) return;
-
-      if (mode === 'OFF') {
-        badge.textContent = 'OFF';
-        badge.style.background = '#7f1d1d';
-        badge.style.color = '#fecaca';
-        if (btn) { btn.textContent = 'Turn On'; btn.className = ''; }
-      } else {
-        badge.textContent = 'ON · ' + mode;
-        badge.style.background = '#065f46';
-        badge.style.color = '#a7f3d0';
-        if (btn) { btn.textContent = 'Turn Off'; btn.className = 'secondary'; }
+      if (badge) {
+        if (mode === 'OFF') {
+          badge.textContent = 'OFF';
+          badge.className = 'pill pill-danger';
+          if (btn) { btn.textContent = 'Turn On'; btn.className = ''; }
+        } else {
+          badge.textContent = 'ON · ' + mode;
+          badge.className = 'pill pill-success';
+          if (btn) { btn.textContent = 'Turn Off'; btn.className = 'secondary'; }
+        }
+      }
+      // Also update the header mode pill
+      const pill = document.getElementById('modePill');
+      if (pill) {
+        pill.className = 'mode-pill ' + (mode || 'off').toLowerCase();
+        pill.textContent = mode || 'OFF';
       }
     }
 
@@ -512,18 +1141,67 @@
     async function loadStats() {
       const r = await api('/stats');
       if (!r.ok) return;
-      document.getElementById('statActive').textContent = r.data.activeViewers;
-      document.getElementById('statTotal').textContent = r.data.totalViewers;
-      document.getElementById('statVotes').textContent = r.data.totalVotes;
-      document.getElementById('statQueue').textContent = r.data.queueLength;
-      document.getElementById('statPlays').textContent = r.data.totalPlays;
+      const d = r.data;
+
+      // Dashboard stat cards
+      document.getElementById('statActiveViewers').textContent = d.activeViewers ?? 0;
+      document.getElementById('statVotes').textContent = d.totalVotes ?? 0;
+      document.getElementById('statQueue').textContent = d.queueLength ?? 0;
+      document.getElementById('statPlayed').textContent = d.totalPlays ?? 0;
+
+      // Header
+      document.getElementById('headerViewerCount').innerHTML =
+        '<strong>' + (d.activeViewers ?? 0) + '</strong> viewers';
+
+      // Status strip
+      document.getElementById('stripVoteCount').textContent = d.totalVotes ?? 0;
+      document.getElementById('stripQueueCount').textContent = d.queueLength ?? 0;
+
+      // Now playing / next up
+      try {
+        const np = await api('/now-playing');
+        if (np.ok && np.data) {
+          const nowName = np.data.sequence_name || '';
+          const nextName = np.data.next_sequence_name || '';
+          const lookup = (n) => {
+            if (!n) return '—';
+            const s = (sequencesCache || []).find(x => x.name === n);
+            return s ? (s.display_name || n) : n;
+          };
+          const nowDisp = lookup(nowName);
+          const nextDisp = lookup(nextName);
+          const npStrip = document.getElementById('stripNowPlaying');
+          const nuStrip = document.getElementById('stripNextUp');
+          const npDash = document.getElementById('dashNowPlaying');
+          const nuDash = document.getElementById('dashNextUp');
+          if (npStrip) npStrip.textContent = nowDisp;
+          if (nuStrip) nuStrip.textContent = nextDisp;
+          if (npDash) npDash.textContent = nowDisp;
+          if (nuDash) nuDash.textContent = nextDisp;
+        }
+      } catch (e) { /* non-fatal */ }
+
+      // Total sequences stat
+      if (sequencesCache) {
+        const seqStat = document.getElementById('statSequences');
+        if (seqStat) seqStat.textContent = sequencesCache.length;
+      }
+
+      // Top sequences table
       const tbody = document.getElementById('topBody');
-      tbody.innerHTML = '';
-      (r.data.topSequences || []).forEach(s => {
-        const tr = document.createElement('tr');
-        tr.innerHTML = `<td>${escapeHtml(s.sequence_name)}</td><td>${s.plays}</td>`;
-        tbody.appendChild(tr);
-      });
+      if (tbody) {
+        tbody.innerHTML = '';
+        const top = d.topSequences || [];
+        if (top.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="2" class="muted">No plays yet</td></tr>';
+        } else {
+          top.forEach(s => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `<td>${escapeHtml(s.sequence_name)}</td><td>${s.plays}</td>`;
+            tbody.appendChild(tr);
+          });
+        }
+      }
     }
 
     let sequencesCache = [];
@@ -769,7 +1447,7 @@
           monacoEditor = monaco.editor.create(document.getElementById('monacoContainer'), {
             value: '',
             language: 'html',
-            theme: 'vs-dark',
+            theme: (localStorage.getItem('openfalcon_theme') === 'stage-light') ? 'vs' : 'vs-dark',
             automaticLayout: true,
             wordWrap: 'on',
             minimap: { enabled: false },
@@ -917,6 +1595,193 @@
         selectTemplate(r.data.id);
       }
     }
+
+    // ============================================================
+    // PLUGIN STATUS PANEL
+    // ============================================================
+    async function loadPluginStatus() {
+      const r = await api('/plugin-status');
+      if (!r.ok) return;
+      const d = r.data;
+      const dot = document.getElementById('headerPluginDot');
+      const text = document.getElementById('headerPluginText');
+      const conn = document.getElementById('pluginConnStatus');
+      const lastSeen = document.getElementById('pluginLastSeen');
+      const version = document.getElementById('pluginVersion');
+      const lastSync = document.getElementById('pluginLastSync');
+
+      if (d.lastSeen) {
+        const ago = (Date.now() - new Date(d.lastSeen).getTime()) / 1000;
+        const isOnline = ago < 60;
+        dot.className = 'plugin-dot ' + (isOnline ? 'online' : 'offline');
+        text.textContent = isOnline ? 'plugin online' : 'plugin offline';
+        if (conn) {
+          conn.className = 'pill ' + (isOnline ? 'pill-success' : 'pill-danger');
+          conn.textContent = isOnline ? 'Online' : 'Offline';
+        }
+        if (lastSeen) lastSeen.textContent = formatAgo(ago) + ' ago';
+      } else {
+        dot.className = 'plugin-dot offline';
+        text.textContent = 'plugin never connected';
+        if (conn) { conn.className = 'pill pill-neutral'; conn.textContent = 'Never seen'; }
+        if (lastSeen) lastSeen.textContent = 'Never';
+      }
+      if (version) version.textContent = d.version || '—';
+      if (lastSync) {
+        if (d.lastSyncAt) {
+          const ago = (Date.now() - new Date(d.lastSyncAt).getTime()) / 1000;
+          lastSync.textContent = formatAgo(ago) + ' ago (' + (d.lastSyncCount || 0) + ' sequences)';
+        } else {
+          lastSync.textContent = 'Never';
+        }
+      }
+    }
+    function formatAgo(sec) {
+      if (sec < 60) return Math.round(sec) + 's';
+      if (sec < 3600) return Math.round(sec / 60) + 'm';
+      if (sec < 86400) return Math.round(sec / 3600) + 'h';
+      return Math.round(sec / 86400) + 'd';
+    }
+    setInterval(() => {
+      if (!document.getElementById('appView').classList.contains('hidden')) loadPluginStatus();
+    }, 5000);
+
+    // ============================================================
+    // STATUS STRIP / DASHBOARD live values
+    // Hook into existing loadStats + loadConfig pathways
+    // ============================================================
+    function updateModePill(mode) {
+      const pill = document.getElementById('modePill');
+      pill.className = 'mode-pill ' + (mode || 'off').toLowerCase();
+      pill.textContent = mode || 'OFF';
+    }
+
+    // Override updateViewerControlBadge to use the new pill classes
+    window.updateViewerControlBadge = function(mode) {
+      const badge = document.getElementById('viewerControlStatus');
+      const btn = document.getElementById('toggleViewerBtn');
+      if (!badge) return;
+      if (mode === 'OFF') {
+        badge.textContent = 'OFF';
+        badge.className = 'pill pill-danger';
+        if (btn) { btn.textContent = 'Turn On'; btn.className = ''; }
+      } else {
+        badge.textContent = 'ON · ' + mode;
+        badge.className = 'pill pill-success';
+        if (btn) { btn.textContent = 'Turn Off'; btn.className = 'secondary'; }
+      }
+      // Also update the header mode pill
+      updateModePill(mode);
+    };
+
+    // Override updateViewerControlBadge to use pill classes (no inline styles)
+    if (typeof updateViewerControlBadge === 'function') {
+      window.updateViewerControlBadge = function(mode) {
+        const badge = document.getElementById('viewerControlStatus');
+        const btn = document.getElementById('toggleViewerBtn');
+        if (!badge) return;
+        if (mode === 'OFF') {
+          badge.className = 'pill pill-danger';
+          badge.textContent = 'OFF';
+          if (btn) { btn.textContent = 'Turn On'; btn.className = ''; }
+        } else {
+          badge.className = 'pill pill-success';
+          badge.textContent = 'ON · ' + mode;
+          if (btn) { btn.textContent = 'Turn Off'; btn.className = 'secondary'; }
+        }
+        updateModePill(mode);
+      };
+    }
+
+    // Override loadToken to write to the new <code> element
+    if (typeof loadToken === 'function') {
+      window.loadToken = async function() {
+        const r = await api('/show-token');
+        if (!r.ok) return;
+        document.getElementById('showToken').textContent = r.data.showToken;
+      };
+    }
+
+    // Override loadStats to populate the new dashboard + status strip directly
+    window.loadStats = async function() {
+      const r = await api('/stats');
+      if (!r.ok) return;
+      const d = r.data;
+
+      // Dashboard stat cards
+      document.getElementById('statActiveViewers').textContent = d.activeViewers ?? 0;
+      document.getElementById('statVotes').textContent = d.totalVotes ?? 0;
+      document.getElementById('statQueue').textContent = d.queueLength ?? 0;
+      document.getElementById('statPlayed').textContent = d.totalPlays ?? 0;
+
+      // Header count
+      document.getElementById('headerViewerCount').innerHTML = '<strong>' + (d.activeViewers ?? 0) + '</strong> viewers';
+
+      // Status strip
+      document.getElementById('stripVoteCount').textContent = d.totalVotes ?? 0;
+      document.getElementById('stripQueueCount').textContent = d.queueLength ?? 0;
+
+      // Now playing / next up — comes from /now-playing
+      try {
+        const np = await api('/now-playing');
+        if (np.ok && np.data) {
+          const nowName = np.data.sequence_name || '—';
+          const nextName = np.data.next_sequence_name || '—';
+          // Resolve display names from cached sequences if available
+          const lookupName = (n) => {
+            if (n === '—') return '—';
+            const found = (sequencesCache || []).find(s => s.name === n);
+            return found ? (found.display_name || n) : n;
+          };
+          const nowDisplay = lookupName(nowName);
+          const nextDisplay = lookupName(nextName);
+          document.getElementById('stripNowPlaying').textContent = nowDisplay;
+          document.getElementById('stripNextUp').textContent = nextDisplay;
+          document.getElementById('dashNowPlaying').textContent = nowDisplay;
+          document.getElementById('dashNextUp').textContent = nextDisplay;
+        }
+      } catch (e) { /* non-fatal */ }
+
+      // Top sequences table
+      const tbody = document.getElementById('topBody');
+      tbody.innerHTML = '';
+      const top = d.topSequences || [];
+      if (top.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="2" class="muted">No plays yet</td></tr>';
+      } else {
+        top.forEach(s => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `<td>${escapeHtml(s.sequence_name)}</td><td>${s.plays}</td>`;
+          tbody.appendChild(tr);
+        });
+      }
+
+      // Total sequences count (only after sequences are loaded)
+      const seqCountEl = document.getElementById('sequenceCount');
+      if (sequencesCache && sequencesCache.length >= 0) {
+        document.getElementById('statSequences').textContent = sequencesCache.length;
+      }
+    };
+
+    // Override loadConfig to update mode pill + pull current config into form fields
+    if (typeof loadConfig === 'function') {
+      const orig_loadConfig = loadConfig;
+      window.loadConfig = async function() {
+        await orig_loadConfig();
+        const r = await api('/config');
+        if (r.ok) updateModePill(r.data.viewer_control_mode);
+      };
+    }
+
+    // Initial plugin status fetch on app show
+    document.addEventListener('DOMContentLoaded', () => {
+      const checkInterval = setInterval(() => {
+        if (!document.getElementById('appView').classList.contains('hidden')) {
+          loadPluginStatus();
+          clearInterval(checkInterval);
+        }
+      }, 500);
+    });
   </script>
 </body>
 </html>
