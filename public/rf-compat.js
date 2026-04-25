@@ -365,20 +365,82 @@
     btn.onmouseenter = () => { btn.style.transform = 'scale(1.08)'; };
     btn.onmouseleave = () => { btn.style.transform = 'scale(1)'; };
 
+    // ---- Theme palettes (player bar colors per decoration) ----
+    // Each palette: bg gradient + border accent + glow color.
+    // CSS variables let decoration code read the active theme color.
+    const themeStyle = document.createElement('style');
+    themeStyle.textContent = `
+      #of-listen-panel {
+        --of-bg: rgba(20,20,30,0.97);
+        --of-border: rgba(255,255,255,0.15);
+        --of-glow: rgba(0,0,0,0);
+        --of-text: #fff;
+        --of-text-dim: #aaa;
+        background: var(--of-bg) !important;
+        border-top: 1px solid var(--of-border) !important;
+        box-shadow: 0 -4px 20px rgba(0,0,0,0.5), 0 -2px 12px var(--of-glow);
+        color: var(--of-text);
+        transition: background 0.4s, border-color 0.4s, box-shadow 0.4s;
+      }
+      #of-listen-panel.of-theme-christmas {
+        --of-bg: linear-gradient(180deg, rgba(60,15,20,0.97), rgba(20,30,20,0.97));
+        --of-border: rgba(239,68,68,0.5);
+        --of-glow: rgba(239,68,68,0.3);
+      }
+      #of-listen-panel.of-theme-halloween {
+        --of-bg: linear-gradient(180deg, rgba(30,10,40,0.97), rgba(50,20,5,0.97));
+        --of-border: rgba(251,146,60,0.6);
+        --of-glow: rgba(251,146,60,0.35);
+      }
+      #of-listen-panel.of-theme-easter {
+        --of-bg: linear-gradient(180deg, rgba(120,80,140,0.97), rgba(60,90,120,0.97));
+        --of-border: rgba(251,207,232,0.6);
+        --of-glow: rgba(251,207,232,0.3);
+      }
+      #of-listen-panel.of-theme-stpatricks {
+        --of-bg: linear-gradient(180deg, rgba(15,50,30,0.97), rgba(8,30,18,0.97));
+        --of-border: rgba(34,197,94,0.6);
+        --of-glow: rgba(34,197,94,0.3);
+      }
+      #of-listen-panel.of-theme-independence {
+        --of-bg: linear-gradient(180deg, rgba(20,30,80,0.97), rgba(80,20,30,0.97));
+        --of-border: rgba(255,255,255,0.5);
+        --of-glow: rgba(96,165,250,0.4);
+      }
+      #of-listen-panel.of-theme-valentines {
+        --of-bg: linear-gradient(180deg, rgba(80,20,50,0.97), rgba(50,15,40,0.97));
+        --of-border: rgba(244,114,182,0.6);
+        --of-glow: rgba(244,114,182,0.4);
+      }
+      #of-listen-panel.of-theme-hanukkah {
+        --of-bg: linear-gradient(180deg, rgba(15,30,60,0.97), rgba(10,20,40,0.97));
+        --of-border: rgba(96,165,250,0.6);
+        --of-glow: rgba(96,165,250,0.4);
+      }
+      #of-listen-panel.of-theme-thanksgiving {
+        --of-bg: linear-gradient(180deg, rgba(60,30,10,0.97), rgba(40,20,5,0.97));
+        --of-border: rgba(234,88,12,0.6);
+        --of-glow: rgba(234,88,12,0.3);
+      }
+      #of-listen-panel.of-theme-snow {
+        --of-bg: linear-gradient(180deg, rgba(15,25,50,0.97), rgba(8,15,35,0.97));
+        --of-border: rgba(186,230,253,0.6);
+        --of-glow: rgba(186,230,253,0.4);
+      }
+    `;
+    document.head.appendChild(themeStyle);
+
     // ---- Sticky-bottom panel ----
     const panel = document.createElement('div');
     panel.id = 'of-listen-panel';
     panel.style.cssText = `
       position: fixed; bottom: 0; left: 0; right: 0; z-index: 9999;
-      background: rgba(20,20,30,0.97); color: #fff;
-      border-top: 1px solid rgba(255,255,255,0.15);
-      box-shadow: 0 -4px 20px rgba(0,0,0,0.5);
       padding: 12px 16px;
       font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
       font-size: 14px; line-height: 1.4;
       display: none;
       transform: translateY(100%);
-      transition: transform 0.25s ease-out;
+      transition: transform 0.25s ease-out, background 0.4s, border-color 0.4s;
       backdrop-filter: blur(8px);
     `;
     panel.innerHTML = `
@@ -731,9 +793,18 @@
       currentDecoration = theme;
       currentDecorationAnimated = animated;
 
+      // Update panel theme class — strip all existing of-theme-* and add new one
+      panel.className = panel.className.split(/\s+/)
+        .filter(c => !c.startsWith('of-theme-'))
+        .join(' ').trim();
+      if (theme !== 'none') {
+        panel.classList.add('of-theme-' + theme);
+      }
+
       // Create overlay layer if missing.
-      // Sits ABOVE the player panel (top: -32px lifts it) and extends down
-      // into the player. overflow:visible so animations can spill out.
+      // Sits ABOVE the player panel as a banner — taller decorations like bats
+      // and falling leaves need vertical space. The themed player bar gives them
+      // a colored backdrop so they read clearly.
       if (!decoLayer) {
         decoLayer = document.createElement('div');
         decoLayer.id = 'of-deco';
