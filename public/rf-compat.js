@@ -509,6 +509,9 @@
         const oneWayLatency = (reqEnd - reqStart) / 2;
         clockOffset = data.serverNowMs - reqEnd + oneWayLatency;
 
+        // Apply decoration theme (cheap — only does work if it changed)
+        applyDecoration(data.playerDecoration, data.playerDecorationAnimated);
+
         // Track changed?
         if (data.sequenceName !== currentSequence) {
           handleTrackChange(data);
@@ -636,6 +639,252 @@
       const ms = Math.round(drift * 1000);
       driftEl.textContent = '· ' + (ms >= 0 ? '+' : '') + ms + 'ms';
       driftEl.style.color = Math.abs(ms) < 100 ? '#4ade80' : (Math.abs(ms) < 500 ? '#fb923c' : '#ef4444');
+    }
+
+    // ---- Player decoration ----
+    let currentDecoration = null;
+    let currentDecorationAnimated = null;
+    let decoLayer = null;
+
+    function applyDecoration(theme, animated) {
+      theme = theme || 'none';
+      animated = (animated !== false);
+      if (theme === currentDecoration && animated === currentDecorationAnimated) return;
+      currentDecoration = theme;
+      currentDecorationAnimated = animated;
+
+      // Create overlay layer if missing
+      if (!decoLayer) {
+        decoLayer = document.createElement('div');
+        decoLayer.id = 'of-deco';
+        decoLayer.style.cssText = `
+          position: absolute; top: -8px; left: 0; right: 0;
+          height: 16px; pointer-events: none; overflow: visible;
+          z-index: 1;
+        `;
+        panel.style.position = panel.style.position || 'fixed';
+        panel.appendChild(decoLayer);
+      }
+
+      // Honor user's prefers-reduced-motion at OS level
+      const prefersReduced = window.matchMedia &&
+        window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      const animate = animated && !prefersReduced;
+
+      decoLayer.innerHTML = renderDecoration(theme, animate);
+      // Reset panel padding-top in case previous decoration needed extra room
+      panel.style.paddingTop = (theme === 'none') ? '12px' : '20px';
+    }
+
+    function renderDecoration(theme, animate) {
+      const animClass = animate ? ' of-deco-animate' : '';
+      switch (theme) {
+        case 'christmas':       return christmasLights(animClass);
+        case 'halloween':       return halloweenSpooky(animClass);
+        case 'easter':          return easterEggs(animClass);
+        case 'stpatricks':      return stPatricksClovers(animClass);
+        case 'independence':    return independenceFireworks(animClass);
+        case 'valentines':      return valentinesHearts(animClass);
+        case 'hanukkah':        return hanukkahStars(animClass);
+        case 'thanksgiving':    return thanksgivingLeaves(animClass);
+        case 'snow':            return snowFall(animClass);
+        default:                return '';
+      }
+    }
+
+    // ---- Decoration renderers (each returns HTML string) ----
+
+    function christmasLights(animClass) {
+      // String of bulbs along a wire across the top
+      const colors = ['#ef4444','#facc15','#22c55e','#3b82f6','#a855f7','#ec4899'];
+      let bulbs = '';
+      const count = 18;
+      for (let i = 0; i < count; i++) {
+        const left = (i / (count - 1)) * 100;
+        const color = colors[i % colors.length];
+        const delay = (i * 0.15) % 1.8;
+        bulbs += `<div class="of-bulb${animClass}" style="left:${left}%;background:${color};box-shadow:0 0 8px ${color};animation-delay:${delay}s;"></div>`;
+      }
+      return `
+        <style>
+          #of-deco .of-wire { position:absolute; top:8px; left:0; right:0; height:2px;
+            background:linear-gradient(90deg,#1f2937,#374151,#1f2937); border-radius:1px; }
+          #of-deco .of-bulb { position:absolute; top:10px; width:8px; height:11px;
+            border-radius:50% 50% 40% 40%; transform:translateX(-50%);
+            opacity:0.95; }
+          #of-deco .of-bulb.of-deco-animate { animation: ofTwinkle 1.8s ease-in-out infinite; }
+          @keyframes ofTwinkle {
+            0%,100% { opacity:0.4; filter:brightness(0.7); }
+            50% { opacity:1; filter:brightness(1.3); }
+          }
+        </style>
+        <div class="of-wire"></div>
+        ${bulbs}
+      `;
+    }
+
+    function halloweenSpooky(animClass) {
+      // Bats flying across, pumpkins in corners
+      return `
+        <style>
+          #of-deco .of-bat { position:absolute; top:0; font-size:14px; opacity:0.8;
+            color:#1f2937; filter: drop-shadow(0 0 2px rgba(168,85,247,0.4)); }
+          #of-deco .of-bat.of-deco-animate { animation: ofFly 8s linear infinite; }
+          @keyframes ofFly {
+            0% { transform: translateX(0) translateY(0); }
+            25% { transform: translateX(30vw) translateY(-4px); }
+            50% { transform: translateX(60vw) translateY(2px); }
+            75% { transform: translateX(80vw) translateY(-3px); }
+            100% { transform: translateX(110vw) translateY(0); }
+          }
+          #of-deco .of-pumpkin { position:absolute; top:-4px; font-size:18px; }
+          #of-deco .of-pumpkin.left { left:8px; }
+          #of-deco .of-pumpkin.right { right:8px; }
+          #of-deco .of-pumpkin.of-deco-animate { animation: ofBob 3s ease-in-out infinite; }
+          @keyframes ofBob {
+            0%,100% { transform: translateY(0) rotate(-3deg); }
+            50% { transform: translateY(-3px) rotate(3deg); }
+          }
+        </style>
+        <span class="of-pumpkin left${animClass}">🎃</span>
+        <span class="of-pumpkin right${animClass}" style="animation-delay:1.5s;">🎃</span>
+        <span class="of-bat${animClass}" style="animation-delay:0s;">🦇</span>
+        <span class="of-bat${animClass}" style="animation-delay:3s;">🦇</span>
+        <span class="of-bat${animClass}" style="animation-delay:5.5s;">🦇</span>
+      `;
+    }
+
+    function easterEggs(animClass) {
+      const eggs = ['🥚','🐰','🌷','🐣','🌸'];
+      let html = '<style>#of-deco .of-egg { position:absolute; top:-2px; font-size:16px; }';
+      html += `#of-deco .of-egg.of-deco-animate { animation: ofWiggle 2.4s ease-in-out infinite; }
+        @keyframes ofWiggle {
+          0%,100% { transform: rotate(-8deg) translateY(0); }
+          50% { transform: rotate(8deg) translateY(-2px); }
+        }</style>`;
+      for (let i = 0; i < 7; i++) {
+        const left = 5 + (i * 14);
+        const sym = eggs[i % eggs.length];
+        const delay = (i * 0.3) % 2.4;
+        html += `<span class="of-egg${animClass}" style="left:${left}%;animation-delay:${delay}s;">${sym}</span>`;
+      }
+      return html;
+    }
+
+    function stPatricksClovers(animClass) {
+      let html = `<style>
+        #of-deco .of-clover { position:absolute; top:-2px; font-size:16px; }
+        #of-deco .of-clover.of-deco-animate { animation: ofSpin 4s linear infinite; }
+        @keyframes ofSpin {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+      </style>`;
+      for (let i = 0; i < 8; i++) {
+        const left = 4 + (i * 12.5);
+        const delay = (i * 0.4) % 4;
+        html += `<span class="of-clover${animClass}" style="left:${left}%;animation-delay:${delay}s;">☘️</span>`;
+      }
+      return html;
+    }
+
+    function independenceFireworks(animClass) {
+      // Mini firework bursts
+      const colors = ['#ef4444','#3b82f6','#ffffff','#facc15'];
+      let html = `<style>
+        #of-deco .of-spark { position:absolute; top:6px; width:4px; height:4px;
+          border-radius:50%; transform:translateX(-50%); }
+        #of-deco .of-spark.of-deco-animate { animation: ofBurst 2.4s ease-out infinite; }
+        @keyframes ofBurst {
+          0% { transform: translateX(-50%) scale(0); opacity:1; }
+          50% { transform: translateX(-50%) scale(2.5); opacity:0.6; }
+          100% { transform: translateX(-50%) scale(3); opacity:0; }
+        }
+      </style>`;
+      for (let i = 0; i < 10; i++) {
+        const left = 8 + (i * 9.5);
+        const color = colors[i % colors.length];
+        const delay = (i * 0.25) % 2.4;
+        html += `<div class="of-spark${animClass}" style="left:${left}%;background:${color};box-shadow:0 0 10px ${color};animation-delay:${delay}s;"></div>`;
+      }
+      return html;
+    }
+
+    function valentinesHearts(animClass) {
+      let html = `<style>
+        #of-deco .of-heart { position:absolute; top:-2px; font-size:14px; }
+        #of-deco .of-heart.of-deco-animate { animation: ofPulseHeart 1.5s ease-in-out infinite; }
+        @keyframes ofPulseHeart {
+          0%,100% { transform: scale(1); opacity:0.8; }
+          50% { transform: scale(1.25); opacity:1; }
+        }
+      </style>`;
+      for (let i = 0; i < 9; i++) {
+        const left = 4 + (i * 11.5);
+        const delay = (i * 0.18) % 1.5;
+        html += `<span class="of-heart${animClass}" style="left:${left}%;animation-delay:${delay}s;">💗</span>`;
+      }
+      return html;
+    }
+
+    function hanukkahStars(animClass) {
+      // Star of David and dreidels alternating
+      const symbols = ['✡️','🕎','✡️','🕯️','✡️','🕎'];
+      let html = `<style>
+        #of-deco .of-hstar { position:absolute; top:-2px; font-size:14px; color:#3b82f6; }
+        #of-deco .of-hstar.of-deco-animate { animation: ofShine 2s ease-in-out infinite; }
+        @keyframes ofShine {
+          0%,100% { filter: drop-shadow(0 0 2px #60a5fa); opacity:0.8; }
+          50% { filter: drop-shadow(0 0 8px #60a5fa); opacity:1; }
+        }
+      </style>`;
+      for (let i = 0; i < symbols.length; i++) {
+        const left = 6 + (i * 16);
+        const delay = (i * 0.3) % 2;
+        html += `<span class="of-hstar${animClass}" style="left:${left}%;animation-delay:${delay}s;">${symbols[i]}</span>`;
+      }
+      return html;
+    }
+
+    function thanksgivingLeaves(animClass) {
+      const leaves = ['🍂','🍁','🍃','🍁','🍂'];
+      let html = `<style>
+        #of-deco .of-leaf { position:absolute; top:-4px; font-size:15px; }
+        #of-deco .of-leaf.of-deco-animate { animation: ofFall 5s ease-in-out infinite; }
+        @keyframes ofFall {
+          0% { transform: translateY(-12px) rotate(-20deg); opacity:0; }
+          15% { opacity:1; }
+          100% { transform: translateY(50px) rotate(180deg); opacity:0; }
+        }
+      </style>`;
+      for (let i = 0; i < 8; i++) {
+        const left = 5 + (i * 12);
+        const sym = leaves[i % leaves.length];
+        const delay = (i * 0.6) % 5;
+        html += `<span class="of-leaf${animClass}" style="left:${left}%;animation-delay:${delay}s;">${sym}</span>`;
+      }
+      return html;
+    }
+
+    function snowFall(animClass) {
+      let html = `<style>
+        #of-deco .of-flake { position:absolute; top:-6px; font-size:11px; color:#fff;
+          opacity:0.85; text-shadow: 0 0 3px rgba(255,255,255,0.6); }
+        #of-deco .of-flake.of-deco-animate { animation: ofSnow 6s linear infinite; }
+        @keyframes ofSnow {
+          0% { transform: translateY(-12px) rotate(0); opacity:0; }
+          15% { opacity:1; }
+          100% { transform: translateY(70px) rotate(360deg); opacity:0; }
+        }
+      </style>`;
+      const count = 14;
+      for (let i = 0; i < count; i++) {
+        const left = (i / (count - 1)) * 100;
+        const delay = (i * 0.4) % 6;
+        const size = 9 + (i % 4) * 2;
+        html += `<span class="of-flake${animClass}" style="left:${left}%;animation-delay:${delay}s;font-size:${size}px;">❄</span>`;
+      }
+      return html;
     }
   })();
 })();

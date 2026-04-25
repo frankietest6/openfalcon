@@ -108,6 +108,9 @@ router.put('/config', requireAdmin, (req, res) => {
     // Misc
     'hide_sequence_after_played',
     'blocked_ips',
+    // Viewer player decoration
+    'player_decoration',
+    'player_decoration_animated',
   ];
   const updates = {};
   for (const k of allowed) {

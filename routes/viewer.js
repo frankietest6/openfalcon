@@ -347,6 +347,9 @@ router.get('/now-playing-audio', (req, res) => {
     wsSyncUrl,
     // Proxy fallback (Phase 1) — works even without daemon
     streamUrl: `/api/audio-stream/${encodeURIComponent(seq.name)}`,
+    // Player decoration theme
+    playerDecoration: cfg.player_decoration || 'none',
+    playerDecorationAnimated: cfg.player_decoration_animated !== 0,
   });
 });
 

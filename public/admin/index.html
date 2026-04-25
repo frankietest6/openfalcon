@@ -755,7 +755,7 @@
 
     <!-- Sticky header -->
     <header class="app-header">
-      <span class="app-brand">OpenFalcon <span class="app-version">v0.11.5</span></span>
+      <span class="app-brand">OpenFalcon <span class="app-version">v0.11.6</span></span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
       <span class="header-meta">
@@ -1120,6 +1120,33 @@
               <span id="locationDetectStatus" class="muted"></span>
             </div>
 
+            <h3>Player Decoration</h3>
+            <p class="muted" style="font-size: 0.85rem; margin: 0.25rem 0 0.75rem;">
+              Decorate the "Listen on Phone" player on the viewer page with seasonal flair.
+              Independent of admin theme — your viewers see what you pick here.
+            </p>
+            <div class="row">
+              <div style="flex: 1;">
+                <label for="cfg_player_decoration">Decoration theme</label>
+                <select id="cfg_player_decoration" onchange="saveSetting('player_decoration', this.value)">
+                  <option value="none">None</option>
+                  <option value="christmas">🎄 Christmas — string lights</option>
+                  <option value="halloween">🎃 Halloween — bats &amp; pumpkins</option>
+                  <option value="easter">🐰 Easter — pastel eggs</option>
+                  <option value="stpatricks">☘️ St. Patrick's — shamrocks</option>
+                  <option value="independence">🎆 Independence Day — fireworks</option>
+                  <option value="valentines">💝 Valentine's — hearts</option>
+                  <option value="hanukkah">🕎 Hanukkah — stars &amp; menorah</option>
+                  <option value="thanksgiving">🍂 Thanksgiving — autumn leaves</option>
+                  <option value="snow">❄️ Snow (winter generic)</option>
+                </select>
+              </div>
+            </div>
+            <div class="row">
+              <input type="checkbox" id="cfg_player_decoration_animated" onchange="saveSetting('player_decoration_animated', this.checked ? 1 : 0)" />
+              <label for="cfg_player_decoration_animated" style="margin: 0;">Enable animations (twinkle, fall, drift)</label>
+            </div>
+
             <h3>IP blocking</h3>
             <label for="cfg_blocked_ips">Blocked IPs (comma-separated, supports CIDR)</label>
             <textarea id="cfg_blocked_ips" rows="3" placeholder="e.g. 1.2.3.4, 10.0.0.0/24" onchange="saveSetting('blocked_ips', this.value)"></textarea>
@@ -1288,6 +1315,8 @@
       setVal('cfg_check_radius_miles', c.check_radius_miles);
       setVal('cfg_hide_sequence_after_played', c.hide_sequence_after_played);
       setVal('cfg_blocked_ips', c.blocked_ips || '');
+      setVal('cfg_player_decoration', c.player_decoration || 'none');
+      setChk('cfg_player_decoration_animated', c.player_decoration_animated);
     }
 
     function setVal(id, v) {
