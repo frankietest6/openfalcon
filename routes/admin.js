@@ -276,6 +276,28 @@ router.get('/stats', requireAdmin, (req, res) => {
   // Now playing + next up — bundled into stats so admin only needs one poll
   const nowPlaying = db.prepare(`SELECT * FROM now_playing WHERE id = 1`).get() || {};
 
+  // "Next up" priority order:
+  //   1. JUKEBOX mode + queue has entries → first queued request
+  //   2. VOTING mode + votes cast → highest-voted song
+  //   3. Otherwise → schedule's next song (from FPP plugin)
+  let nextUp = nowPlaying.next_sequence_name || null;
+  if (cfg.viewer_control_mode === 'JUKEBOX') {
+    const firstQueued = db.prepare(`
+      SELECT sequence_name FROM jukebox_queue
+      WHERE played = 0 ORDER BY requested_at ASC LIMIT 1
+    `).get();
+    if (firstQueued) nextUp = firstQueued.sequence_name;
+  } else if (cfg.viewer_control_mode === 'VOTING') {
+    const top = db.prepare(`
+      SELECT sequence_name, COUNT(*) AS n FROM votes
+      WHERE round_id = ?
+      GROUP BY sequence_name
+      ORDER BY n DESC
+      LIMIT 1
+    `).get(cfg.current_voting_round);
+    if (top) nextUp = top.sequence_name;
+  }
+
   res.json({
     totalViewers,
     activeViewers,
@@ -285,7 +307,7 @@ router.get('/stats', requireAdmin, (req, res) => {
     topSequences,
     currentRound: cfg.current_voting_round,
     nowPlaying: nowPlaying.sequence_name || null,
-    nextUp: nowPlaying.next_sequence_name || null,
+    nextUp,
   });
 });
 

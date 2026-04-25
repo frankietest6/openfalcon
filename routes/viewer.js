@@ -116,11 +116,29 @@ router.get('/state', (req, res) => {
     WHERE played = 0 ORDER BY requested_at ASC
   `).all();
 
+  // "Next up" priority order:
+  //   1. JUKEBOX mode + queue has entries → first queued request
+  //   2. VOTING mode + votes cast → highest-voted song
+  //   3. Otherwise → whatever the schedule says
+  let nextUp = nowPlaying.next_sequence_name || null;
+  if (cfg.viewer_control_mode === 'JUKEBOX' && queue.length > 0) {
+    nextUp = queue[0].sequence_name;
+  } else if (cfg.viewer_control_mode === 'VOTING') {
+    const top = db.prepare(`
+      SELECT sequence_name, COUNT(*) AS n FROM votes
+      WHERE round_id = ?
+      GROUP BY sequence_name
+      ORDER BY n DESC
+      LIMIT 1
+    `).get(cfg.current_voting_round);
+    if (top) nextUp = top.sequence_name;
+  }
+
   res.json({
     showName: cfg.show_name,
     viewerControlMode: cfg.viewer_control_mode,
     nowPlaying: nowPlaying.sequence_name || null,
-    nextScheduled: nowPlaying.next_sequence_name || null,
+    nextScheduled: nextUp,
     activeViewers,
     sequences,
     voteCounts,
