@@ -277,18 +277,34 @@ router.post('/sync-sequences', (req, res) => {
   // For inserts: display_order defaults to sort_order so new sequences sort naturally.
   // For updates: only touch sort_order (FPP index) + display_name. display_order is admin-owned.
   const upsert = db.prepare(`
-    INSERT INTO sequences (name, display_name, duration_seconds, visible, votable, jukeboxable, sort_order, display_order)
-    VALUES (@name, @display_name, @duration_seconds, 1, 1, 1, @sort_order, @sort_order)
+    INSERT INTO sequences (name, display_name, artist, image_url, duration_seconds, visible, votable, jukeboxable, sort_order, display_order)
+    VALUES (@name, @display_name, @artist, @image_url, @duration_seconds, 1, 1, 1, @sort_order, @sort_order)
     ON CONFLICT(name) DO UPDATE SET
       duration_seconds = excluded.duration_seconds,
       sort_order = excluded.sort_order,
-      -- display_name is preserved if it was customized — only set if currently empty or equals name
+      -- display_name is preserved if it was customized — only update if it's still
+      -- the default (NULL, empty, or equal to the raw filename name).
       display_name = CASE
         WHEN sequences.display_name IS NULL
              OR sequences.display_name = ''
              OR sequences.display_name = sequences.name
         THEN excluded.display_name
         ELSE sequences.display_name
+      END,
+      -- artist is the same idea: only fill if not already set
+      artist = CASE
+        WHEN (sequences.artist IS NULL OR sequences.artist = '')
+             AND excluded.artist IS NOT NULL AND excluded.artist != ''
+        THEN excluded.artist
+        ELSE sequences.artist
+      END,
+      -- image_url: only set from sync if no image already exists. This protects
+      -- manually-uploaded album art from being overwritten by a tag-derived URL.
+      image_url = CASE
+        WHEN (sequences.image_url IS NULL OR sequences.image_url = '')
+             AND excluded.image_url IS NOT NULL AND excluded.image_url != ''
+        THEN excluded.image_url
+        ELSE sequences.image_url
       END
   `);
 
@@ -306,6 +322,8 @@ router.post('/sync-sequences', (req, res) => {
       upsert.run({
         name,
         display_name: String(seq.displayName || toDisplayName(name)).trim(),
+        artist: String(seq.artist || '').trim() || null,
+        image_url: String(seq.imageUrl || '').trim() || null,
         duration_seconds: Number.isFinite(seq.durationSeconds) ? seq.durationSeconds : null,
         sort_order: Number.isFinite(seq.playlistIndex) ? seq.playlistIndex : (index + 1),
       });
