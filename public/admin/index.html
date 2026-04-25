@@ -755,7 +755,7 @@
 
     <!-- Sticky header -->
     <header class="app-header">
-      <span class="app-brand">OpenFalcon <span class="app-version">v0.11.6</span></span>
+      <span class="app-brand">OpenFalcon <span class="app-version">v0.11.8</span></span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
       <span class="header-meta">
@@ -1036,6 +1036,44 @@
             </div>
           </div>
         </div>
+
+        <div class="card">
+          <h2>Listen-on-Phone Player Decoration</h2>
+          <p class="muted" style="font-size: 0.85rem; margin: 0.25rem 0 0.75rem;">
+            Decorate the audio player on the viewer page with seasonal flair.
+            Independent of admin theme — your viewers see what you pick here.
+          </p>
+          <div class="row">
+            <div style="flex: 1;">
+              <label for="cfg_player_decoration">Decoration theme</label>
+              <select id="cfg_player_decoration" onchange="saveSetting('player_decoration', this.value)">
+                <option value="none">None</option>
+                <option value="christmas">🎄 Christmas — string lights</option>
+                <option value="halloween">🎃 Halloween — bats &amp; pumpkins</option>
+                <option value="easter">🐰 Easter — pastel eggs</option>
+                <option value="stpatricks">☘️ St. Patrick's — shamrocks</option>
+                <option value="independence">🎆 Independence Day — fireworks</option>
+                <option value="valentines">💝 Valentine's — hearts</option>
+                <option value="hanukkah">🕎 Hanukkah — stars &amp; menorah</option>
+                <option value="thanksgiving">🍂 Thanksgiving — autumn leaves</option>
+                <option value="snow">❄️ Snow (winter generic)</option>
+              </select>
+            </div>
+          </div>
+          <div class="row">
+            <input type="checkbox" id="cfg_player_decoration_animated" onchange="saveSetting('player_decoration_animated', this.checked ? 1 : 0)" />
+            <label for="cfg_player_decoration_animated" style="margin: 0;">Enable animations (twinkle, fall, drift)</label>
+          </div>
+
+          <h3 style="margin-top: 1.25rem;">Page-wide effects</h3>
+          <div class="row">
+            <input type="checkbox" id="cfg_page_snow_enabled" onchange="saveSetting('page_snow_enabled', this.checked ? 1 : 0)" />
+            <label for="cfg_page_snow_enabled" style="margin: 0;">❄️ Snow falling across the viewer page</label>
+          </div>
+          <p class="muted" style="font-size: 0.8rem; margin: 0.25rem 0 0;">
+            50 snowflakes drift down across the entire page. Doesn't block clicks. Visitors with reduced-motion accessibility setting won't see animations.
+          </p>
+        </div>
       </div>
 
       <!-- ============================================================
@@ -1118,33 +1156,6 @@
             <div class="row" style="margin-top: 0.5rem;">
               <button class="secondary" onclick="detectMyLocation()">Detect my current location</button>
               <span id="locationDetectStatus" class="muted"></span>
-            </div>
-
-            <h3>Player Decoration</h3>
-            <p class="muted" style="font-size: 0.85rem; margin: 0.25rem 0 0.75rem;">
-              Decorate the "Listen on Phone" player on the viewer page with seasonal flair.
-              Independent of admin theme — your viewers see what you pick here.
-            </p>
-            <div class="row">
-              <div style="flex: 1;">
-                <label for="cfg_player_decoration">Decoration theme</label>
-                <select id="cfg_player_decoration" onchange="saveSetting('player_decoration', this.value)">
-                  <option value="none">None</option>
-                  <option value="christmas">🎄 Christmas — string lights</option>
-                  <option value="halloween">🎃 Halloween — bats &amp; pumpkins</option>
-                  <option value="easter">🐰 Easter — pastel eggs</option>
-                  <option value="stpatricks">☘️ St. Patrick's — shamrocks</option>
-                  <option value="independence">🎆 Independence Day — fireworks</option>
-                  <option value="valentines">💝 Valentine's — hearts</option>
-                  <option value="hanukkah">🕎 Hanukkah — stars &amp; menorah</option>
-                  <option value="thanksgiving">🍂 Thanksgiving — autumn leaves</option>
-                  <option value="snow">❄️ Snow (winter generic)</option>
-                </select>
-              </div>
-            </div>
-            <div class="row">
-              <input type="checkbox" id="cfg_player_decoration_animated" onchange="saveSetting('player_decoration_animated', this.checked ? 1 : 0)" />
-              <label for="cfg_player_decoration_animated" style="margin: 0;">Enable animations (twinkle, fall, drift)</label>
             </div>
 
             <h3>IP blocking</h3>
@@ -1317,6 +1328,7 @@
       setVal('cfg_blocked_ips', c.blocked_ips || '');
       setVal('cfg_player_decoration', c.player_decoration || 'none');
       setChk('cfg_player_decoration_animated', c.player_decoration_animated);
+      setChk('cfg_page_snow_enabled', c.page_snow_enabled);
     }
 
     function setVal(id, v) {

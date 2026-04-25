@@ -111,6 +111,7 @@ router.put('/config', requireAdmin, (req, res) => {
     // Viewer player decoration
     'player_decoration',
     'player_decoration_animated',
+    'page_snow_enabled',
   ];
   const updates = {};
   for (const k of allowed) {
