@@ -713,8 +713,27 @@
     }
   </style>
   <script src="https://unpkg.com/monaco-editor@0.45.0/min/vs/loader.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.0/jspdf.plugin.autotable.min.js"></script>
+  <script>
+    /* Monaco's loader.js installs an AMD `define`. jsPDF (UMD) sees it and tries
+       to register anonymously, which AMD then rejects ("Can only have one
+       anonymous define call per script file"). Workaround: hide `define`
+       while jsPDF + autotable load, then restore. */
+    (function () {
+      const _define = window.define;
+      window.define = undefined;
+      function loadScript(src, onload) {
+        const s = document.createElement('script');
+        s.src = src;
+        s.onload = onload;
+        document.head.appendChild(s);
+      }
+      loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js', function () {
+        loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.0/jspdf.plugin.autotable.min.js', function () {
+          window.define = _define;
+        });
+      });
+    })();
+  </script>
 </head>
 <body class="theme-stage-dark">
 
@@ -736,7 +755,7 @@
 
     <!-- Sticky header -->
     <header class="app-header">
-      <span class="app-brand">OpenFalcon <span class="app-version">v0.10.0</span></span>
+      <span class="app-brand">OpenFalcon <span class="app-version">v0.10.1</span></span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
       <span class="header-meta">
