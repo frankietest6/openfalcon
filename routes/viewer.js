@@ -239,8 +239,15 @@ router.post('/jukebox/add', (req, res) => {
 
   const token = ensureViewerToken(req, res);
 
+  // queueSize, sequence-request-limit, and prevent-multiple-requests checks
+  // should only count *pending* queue entries (handed_off_at IS NULL).
+  // In-flight entries (handed_off_at IS NOT NULL but played=0) are already with
+  // the plugin / FPP and shouldn't count against viewers anymore.
+
   if (cfg.jukebox_queue_depth > 0) {
-    const queueSize = db.prepare(`SELECT COUNT(*) AS n FROM jukebox_queue WHERE played = 0`).get().n;
+    const queueSize = db.prepare(
+      `SELECT COUNT(*) AS n FROM jukebox_queue WHERE played = 0 AND handed_off_at IS NULL`
+    ).get().n;
     if (queueSize >= cfg.jukebox_queue_depth) {
       return res.status(409).json({ error: 'The queue is full. Try again later.' });
     }
@@ -248,7 +255,8 @@ router.post('/jukebox/add', (req, res) => {
 
   if (cfg.jukebox_sequence_request_limit > 0) {
     const seqCount = db.prepare(
-      `SELECT COUNT(*) AS n FROM jukebox_queue WHERE played = 0 AND sequence_name = ?`
+      `SELECT COUNT(*) AS n FROM jukebox_queue
+       WHERE played = 0 AND handed_off_at IS NULL AND sequence_name = ?`
     ).get(seq.name).n;
     if (seqCount >= cfg.jukebox_sequence_request_limit) {
       return res.status(409).json({
@@ -259,7 +267,8 @@ router.post('/jukebox/add', (req, res) => {
 
   if (cfg.prevent_multiple_requests) {
     const existing = db.prepare(
-      `SELECT COUNT(*) AS n FROM jukebox_queue WHERE viewer_token = ? AND played = 0`
+      `SELECT COUNT(*) AS n FROM jukebox_queue
+       WHERE viewer_token = ? AND played = 0 AND handed_off_at IS NULL`
     ).get(token).n;
     if (existing >= 1) {
       return res.status(409).json({ error: 'You already have a request in the queue' });

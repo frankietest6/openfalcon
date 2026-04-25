@@ -17,6 +17,7 @@ const router = express.Router();
 const config = require('../config');
 const {
   getConfig,
+  updateConfig,
   setNowPlaying,
   setNextScheduled,
   getHighestVotedSequence,
@@ -39,14 +40,18 @@ function requireBearerToken(req, res, next) {
 
 router.use(requireBearerToken);
 
-// Track plugin heartbeats and sync in memory
-const pluginStatus = {
-  lastSeen: null,
-  version: null,
-  lastSyncAt: null,
-  lastSyncPlaylist: null,
-  lastSyncCount: 0,
-};
+// Track plugin heartbeats and sync — hydrated from config on startup,
+// re-saved to config whenever values change so restarts don't lose state.
+const pluginStatus = (() => {
+  const cfg = getConfig();
+  return {
+    lastSeen: cfg.plugin_last_seen_at || null,
+    version: cfg.plugin_version || null,
+    lastSyncAt: cfg.plugin_last_sync_at || null,
+    lastSyncPlaylist: cfg.plugin_last_sync_playlist || null,
+    lastSyncCount: cfg.plugin_last_sync_count || 0,
+  };
+})();
 
 // ============================================================
 // GET /api/plugin/state
@@ -239,6 +244,11 @@ router.post('/next', (req, res) => {
 router.post('/heartbeat', (req, res) => {
   pluginStatus.lastSeen = new Date().toISOString();
   pluginStatus.version = req.body?.pluginVersion || null;
+  // Persist so server restarts don't lose state
+  updateConfig({
+    plugin_last_seen_at: pluginStatus.lastSeen,
+    plugin_version: pluginStatus.version,
+  });
   res.json({ ok: true });
 });
 
@@ -304,10 +314,15 @@ router.post('/sync-sequences', (req, res) => {
   });
   tx(sequences);
 
-  // Track sync metadata
+  // Track sync metadata + persist so it survives server restarts
   pluginStatus.lastSyncAt = new Date().toISOString();
   pluginStatus.lastSyncPlaylist = playlistName || null;
   pluginStatus.lastSyncCount = inserted;
+  updateConfig({
+    plugin_last_sync_at: pluginStatus.lastSyncAt,
+    plugin_last_sync_playlist: pluginStatus.lastSyncPlaylist,
+    plugin_last_sync_count: pluginStatus.lastSyncCount,
+  });
 
   const io = req.app.get('io');
   if (io) io.emit('sequencesSynced', { count: inserted, playlistName });
