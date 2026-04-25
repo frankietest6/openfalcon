@@ -755,7 +755,7 @@
 
     <!-- Sticky header -->
     <header class="app-header">
-      <span class="app-brand">OpenFalcon <span class="app-version">v0.11.14</span></span>
+      <span class="app-brand">OpenFalcon <span class="app-version">v0.11.15</span></span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
       <span class="header-meta">
@@ -1440,10 +1440,9 @@
     }
 
     // ---- Custom player color (solid + gradient) ----
-    // Storage format:
-    //   ''                         → no override (default dark)
-    //   '#ff0000'                  → solid hex
-    //   'linear-gradient(...)'     → CSS gradient string
+    // Tracked separately from radios so picker interactions can't desync state.
+    let _ofColorMode = 'solid';
+
     function loadCustomColorState(stored) {
       const isGradient = stored && stored.indexOf('gradient') >= 0;
       const solidEl = document.getElementById('cfg_player_custom_color');
@@ -1455,7 +1454,6 @@
       const radioGrad = document.getElementById('cfg_player_color_mode_gradient');
 
       if (isGradient) {
-        // Parse "linear-gradient(180deg, #aabbcc, #ddeeff)"
         const m = stored.match(/linear-gradient\(\s*(\d+deg)\s*,\s*(#[0-9a-fA-F]{6})\s*,\s*(#[0-9a-fA-F]{6})\s*\)/);
         if (m) {
           gradDirEl.value = m[1];
@@ -1466,11 +1464,12 @@
           gradTopEl.value = '#1a1a2e';
           gradBotEl.value = '#0f0f20';
         }
+        _ofColorMode = 'gradient';
         radioGrad.checked = true;
-        // Defaults for solid even when gradient is selected
         solidEl.value = '#1a1a2e';
         solidTextEl.value = '';
       } else {
+        _ofColorMode = 'solid';
         radioSolid.checked = true;
         solidEl.value = stored || '#1a1a2e';
         solidTextEl.value = stored || '';
@@ -1478,20 +1477,32 @@
         gradBotEl.value = '#0f0f20';
         gradDirEl.value = '180deg';
       }
-      updateCustomColorMode();
+      applyColorModeUI();
       updateCustomColorPreview();
     }
 
     function updateCustomColorMode() {
-      const isGrad = document.getElementById('cfg_player_color_mode_gradient').checked;
+      // Called when radio is clicked — just track + reapply
+      _ofColorMode = document.getElementById('cfg_player_color_mode_gradient').checked
+        ? 'gradient' : 'solid';
+      applyColorModeUI();
+      // Save the current mode's value (so switching modes commits the new mode's color)
+      commitCustomColor();
+    }
+
+    function applyColorModeUI() {
+      const isGrad = _ofColorMode === 'gradient';
+      // Force radios to match tracked state (in case the browser shifted them)
+      document.getElementById('cfg_player_color_mode_solid').checked = !isGrad;
+      document.getElementById('cfg_player_color_mode_gradient').checked = isGrad;
       document.getElementById('cfg_player_color_solid_row').style.display = isGrad ? 'none' : 'flex';
       document.getElementById('cfg_player_color_gradient_row').style.display = isGrad ? 'flex' : 'none';
       updateCustomColorPreview();
     }
 
     function getCustomColorValue() {
-      const isGrad = document.getElementById('cfg_player_color_mode_gradient').checked;
-      if (isGrad) {
+      // Use tracked mode, NOT radio state (which can desync during picker focus changes)
+      if (_ofColorMode === 'gradient') {
         const top = document.getElementById('cfg_player_grad_top').value;
         const bot = document.getElementById('cfg_player_grad_bottom').value;
         const dir = document.getElementById('cfg_player_grad_dir').value;
@@ -1508,6 +1519,9 @@
       if (!preview) return;
       const v = getCustomColorValue();
       preview.style.background = v || '#1a1a2e';
+      // Keep radios honest in case anything bumped them
+      document.getElementById('cfg_player_color_mode_solid').checked = (_ofColorMode === 'solid');
+      document.getElementById('cfg_player_color_mode_gradient').checked = (_ofColorMode === 'gradient');
     }
 
     function commitCustomColor() {
@@ -1517,13 +1531,13 @@
     }
 
     function resetCustomColor() {
+      _ofColorMode = 'solid';
       document.getElementById('cfg_player_custom_color').value = '#1a1a2e';
       document.getElementById('cfg_player_custom_color_text').value = '';
       document.getElementById('cfg_player_grad_top').value = '#1a1a2e';
       document.getElementById('cfg_player_grad_bottom').value = '#0f0f20';
       document.getElementById('cfg_player_grad_dir').value = '180deg';
-      document.getElementById('cfg_player_color_mode_solid').checked = true;
-      updateCustomColorMode();
+      applyColorModeUI();
       saveSetting('player_custom_color', '');
     }
 
