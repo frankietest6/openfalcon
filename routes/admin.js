@@ -152,8 +152,9 @@ router.post('/change-password', requireAdmin, async (req, res) => {
 // ============================================================
 
 router.get('/sequences', requireAdmin, (req, res) => {
+  const { bustSequenceCovers } = require('../lib/cover-art');
   const rows = db.prepare(`SELECT * FROM sequences ORDER BY display_order, display_name`).all();
-  res.json(rows);
+  res.json(bustSequenceCovers(rows));
 });
 
 router.post('/sequences', requireAdmin, (req, res) => {
@@ -450,11 +451,13 @@ router.post('/sequences/:id/fetch-cover', requireAdmin, async (req, res) => {
   const seq = db.prepare(`SELECT id, name, display_name, artist FROM sequences WHERE id = ?`).get(Number(req.params.id));
   if (!seq) return res.status(404).json({ error: 'Sequence not found' });
   try {
-    const { autoFetchCover } = require('../lib/cover-art');
+    const { autoFetchCover, bustCoverUrl } = require('../lib/cover-art');
     const localPath = await autoFetchCover(seq);
     if (!localPath) return res.json({ ok: false, message: 'No cover found' });
     db.prepare(`UPDATE sequences SET image_url = ? WHERE id = ?`).run(localPath, seq.id);
-    res.json({ ok: true, image_url: localPath });
+    const io = req.app.get('io');
+    if (io) io.emit('sequencesReordered'); // re-use to trigger list refresh
+    res.json({ ok: true, image_url: bustCoverUrl(localPath) });
   } catch (err) {
     console.error('fetch-cover error:', err.message);
     res.status(500).json({ error: err.message });
@@ -513,10 +516,12 @@ router.post('/sequences/:id/cover', requireAdmin, async (req, res) => {
   const { url } = req.body || {};
   if (!url) return res.status(400).json({ error: 'url required' });
   try {
-    const { downloadCover } = require('../lib/cover-art');
+    const { downloadCover, bustCoverUrl } = require('../lib/cover-art');
     const localPath = await downloadCover(url, id);
     db.prepare(`UPDATE sequences SET image_url = ? WHERE id = ?`).run(localPath, id);
-    res.json({ ok: true, image_url: localPath });
+    const io = req.app.get('io');
+    if (io) io.emit('sequencesReordered'); // re-use to trigger list refresh
+    res.json({ ok: true, image_url: bustCoverUrl(localPath) });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

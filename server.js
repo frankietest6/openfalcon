@@ -81,6 +81,9 @@ app.get('/', (req, res) => {
       ORDER BY display_order, display_name
     `).all();
 
+    const { bustSequenceCovers } = require('./lib/cover-art');
+    const sequencesBusted = bustSequenceCovers(sequences);
+
     const voteCounts = db.prepare(`
       SELECT sequence_name, COUNT(*) AS count FROM votes
       WHERE round_id = ? GROUP BY sequence_name
@@ -93,7 +96,7 @@ app.get('/', (req, res) => {
 
     const html = renderTemplate(tpl.html, {
       config: cfg,
-      sequences,
+      sequences: sequencesBusted,
       voteCounts,
       queue,
       nowPlaying: nowPlaying.sequence_name,
@@ -112,8 +115,13 @@ app.get('/', (req, res) => {
 app.use('/', express.static(path.join(__dirname, 'public')));
 
 // Serve cached cover art images
+// Serve cached cover art images.
+// We use immutable cache-busting via mtime in the URL (?v=<mtime>) so
+// covers can be cached aggressively but force revalidation on update.
 app.use('/covers', express.static(path.join(__dirname, 'data', 'covers'), {
-  maxAge: '7d', // browser caches for 7 days; we replace on update
+  maxAge: '7d',
+  etag: true,
+  lastModified: true,
 }));
 
 // Admin static files (under /admin)

@@ -105,7 +105,8 @@ router.get('/state', (req, res) => {
     ORDER BY display_order, display_name
   `).all();
 
-  const sequences = allSequences.filter(s => !isSequenceHidden(s, cfg));
+  const { bustSequenceCovers } = require('../lib/cover-art');
+  const sequences = bustSequenceCovers(allSequences.filter(s => !isSequenceHidden(s, cfg)));
 
   const voteCounts = db.prepare(`
     SELECT sequence_name, COUNT(*) AS count FROM votes WHERE round_id = ? GROUP BY sequence_name
