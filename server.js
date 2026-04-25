@@ -116,12 +116,17 @@ app.use('/', express.static(path.join(__dirname, 'public')));
 
 // Serve cached cover art images
 // Serve cached cover art images.
-// We use immutable cache-busting via mtime in the URL (?v=<mtime>) so
-// covers can be cached aggressively but force revalidation on update.
+// We use cache-busting via mtime in the URL (?v=<mtime>) — see lib/cover-art.js
+// `bustCoverUrl()`. Long maxAge is fine because the URL changes with the file.
 app.use('/covers', express.static(path.join(__dirname, 'data', 'covers'), {
   maxAge: '7d',
   etag: true,
   lastModified: true,
+  setHeaders: (res) => {
+    // Force revalidation when no cache buster present so stale URLs don't
+    // hold on forever (e.g. cached <img src=/covers/24.jpg> with no ?v=).
+    res.setHeader('Cache-Control', 'public, max-age=604800, must-revalidate');
+  },
 }));
 
 // Admin static files (under /admin)

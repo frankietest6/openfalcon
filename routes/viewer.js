@@ -9,6 +9,7 @@ const crypto = require('crypto');
 const router = express.Router();
 const config = require('../config');
 const { db, getConfig, getNowPlaying, getActiveViewerCount, getSequenceByName } = require('../lib/db');
+const { bustCoverUrl } = require('../lib/cover-art');
 
 function ensureViewerToken(req, res) {
   let token = req.cookies[config.sessionCookieName + '_viewer'];
@@ -354,7 +355,7 @@ router.get('/now-playing-audio', (req, res) => {
     sequenceName: np.sequence_name,
     displayName: seq.display_name || np.sequence_name,
     artist: seq.artist || '',
-    imageUrl: seq.image_url || null,
+    imageUrl: bustCoverUrl(seq.image_url) || null,
     durationSec: seq.duration_seconds || null,
     elapsedSec: Math.round(elapsedSec * 10) / 10,
     startedAt: np.started_at,
