@@ -610,7 +610,7 @@
 
     <!-- Sticky header -->
     <header class="app-header">
-      <span class="app-brand">OpenFalcon <span class="app-version">v0.7.2</span></span>
+      <span class="app-brand">OpenFalcon <span class="app-version">v0.7.3</span></span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
       <span class="header-meta">
@@ -1157,29 +1157,22 @@
       document.getElementById('stripVoteCount').textContent = d.totalVotes ?? 0;
       document.getElementById('stripQueueCount').textContent = d.queueLength ?? 0;
 
-      // Now playing / next up
-      try {
-        const np = await api('/now-playing');
-        if (np.ok && np.data) {
-          const nowName = np.data.sequence_name || '';
-          const nextName = np.data.next_sequence_name || '';
-          const lookup = (n) => {
-            if (!n) return '—';
-            const s = (sequencesCache || []).find(x => x.name === n);
-            return s ? (s.display_name || n) : n;
-          };
-          const nowDisp = lookup(nowName);
-          const nextDisp = lookup(nextName);
-          const npStrip = document.getElementById('stripNowPlaying');
-          const nuStrip = document.getElementById('stripNextUp');
-          const npDash = document.getElementById('dashNowPlaying');
-          const nuDash = document.getElementById('dashNextUp');
-          if (npStrip) npStrip.textContent = nowDisp;
-          if (nuStrip) nuStrip.textContent = nextDisp;
-          if (npDash) npDash.textContent = nowDisp;
-          if (nuDash) nuDash.textContent = nextDisp;
-        }
-      } catch (e) { /* non-fatal */ }
+      // Now playing / next up — comes from /stats response now
+      const lookupName = (n) => {
+        if (!n) return '—';
+        const s = (sequencesCache || []).find(x => x.name === n);
+        return s ? (s.display_name || n) : n;
+      };
+      const nowDisp = lookupName(d.nowPlaying);
+      const nextDisp = lookupName(d.nextUp);
+      const npStrip = document.getElementById('stripNowPlaying');
+      const nuStrip = document.getElementById('stripNextUp');
+      const npDash = document.getElementById('dashNowPlaying');
+      const nuDash = document.getElementById('dashNextUp');
+      if (npStrip) npStrip.textContent = nowDisp;
+      if (nuStrip) nuStrip.textContent = nextDisp;
+      if (npDash) npDash.textContent = nowDisp;
+      if (nuDash) nuDash.textContent = nextDisp;
 
       // Total sequences stat
       if (sequencesCache) {
@@ -1721,26 +1714,18 @@
       document.getElementById('stripVoteCount').textContent = d.totalVotes ?? 0;
       document.getElementById('stripQueueCount').textContent = d.queueLength ?? 0;
 
-      // Now playing / next up — comes from /now-playing
-      try {
-        const np = await api('/now-playing');
-        if (np.ok && np.data) {
-          const nowName = np.data.sequence_name || '—';
-          const nextName = np.data.next_sequence_name || '—';
-          // Resolve display names from cached sequences if available
-          const lookupName = (n) => {
-            if (n === '—') return '—';
-            const found = (sequencesCache || []).find(s => s.name === n);
-            return found ? (found.display_name || n) : n;
-          };
-          const nowDisplay = lookupName(nowName);
-          const nextDisplay = lookupName(nextName);
-          document.getElementById('stripNowPlaying').textContent = nowDisplay;
-          document.getElementById('stripNextUp').textContent = nextDisplay;
-          document.getElementById('dashNowPlaying').textContent = nowDisplay;
-          document.getElementById('dashNextUp').textContent = nextDisplay;
-        }
-      } catch (e) { /* non-fatal */ }
+      // Now playing / next up — comes from /stats response now
+      const lookupName = (n) => {
+        if (!n) return '—';
+        const found = (sequencesCache || []).find(s => s.name === n);
+        return found ? (found.display_name || n) : n;
+      };
+      const nowDisplay = lookupName(d.nowPlaying);
+      const nextDisplay = lookupName(d.nextUp);
+      document.getElementById('stripNowPlaying').textContent = nowDisplay;
+      document.getElementById('stripNextUp').textContent = nextDisplay;
+      document.getElementById('dashNowPlaying').textContent = nowDisplay;
+      document.getElementById('dashNextUp').textContent = nextDisplay;
 
       // Top sequences table
       const tbody = document.getElementById('topBody');

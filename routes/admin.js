@@ -265,6 +265,9 @@ router.get('/stats', requireAdmin, (req, res) => {
     LIMIT 10
   `).all();
 
+  // Now playing + next up — bundled into stats so admin only needs one poll
+  const nowPlaying = db.prepare(`SELECT * FROM now_playing WHERE id = 1`).get() || {};
+
   res.json({
     totalViewers,
     activeViewers,
@@ -273,6 +276,8 @@ router.get('/stats', requireAdmin, (req, res) => {
     totalPlays,
     topSequences,
     currentRound: cfg.current_voting_round,
+    nowPlaying: nowPlaying.sequence_name || null,
+    nextUp: nowPlaying.next_sequence_name || null,
   });
 });
 
