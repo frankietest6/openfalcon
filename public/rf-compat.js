@@ -807,9 +807,17 @@
       if (theme !== 'none') {
         panel.classList.add('of-theme-' + theme);
       } else if (customColorKey) {
-        // Custom color when no theme — must use !important to beat the CSS rule's !important
-        panel.style.setProperty('background-image', 'none', 'important');
-        panel.style.setProperty('background-color', customColorKey, 'important');
+        // Custom color when no theme — must use !important to beat the CSS rule's !important.
+        // Value is either a hex like "#1a1a2e" OR a CSS gradient like "linear-gradient(...)".
+        // background-color only takes solid colors; gradients go in background-image.
+        const isGradient = customColorKey.indexOf('gradient') >= 0;
+        if (isGradient) {
+          panel.style.setProperty('background-color', 'transparent', 'important');
+          panel.style.setProperty('background-image', customColorKey, 'important');
+        } else {
+          panel.style.setProperty('background-image', 'none', 'important');
+          panel.style.setProperty('background-color', customColorKey, 'important');
+        }
       }
       // (else: leave defaults, base CSS rule applies)
 

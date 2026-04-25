@@ -755,7 +755,7 @@
 
     <!-- Sticky header -->
     <header class="app-header">
-      <span class="app-brand">OpenFalcon <span class="app-version">v0.11.13</span></span>
+      <span class="app-brand">OpenFalcon <span class="app-version">v0.11.14</span></span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
       <span class="header-meta">
@@ -1062,21 +1062,100 @@
           </div>
           <div class="row" id="cfg_player_custom_color_row" style="display:none;">
             <div style="flex: 1;">
-              <label for="cfg_player_custom_color">Custom player bar color (only used when decoration is "None")</label>
-              <div style="display:flex; gap:0.5rem; align-items:center;">
+              <label>Custom player bar color (only used when decoration is "None")</label>
+
+              <!-- Solid vs Gradient mode -->
+              <div class="row" style="gap: 1rem; margin: 0.5rem 0; align-items: center;">
+                <label style="display:flex; align-items:center; gap:0.4rem; margin:0; cursor:pointer;">
+                  <input type="radio" name="cfg_player_color_mode" value="solid" id="cfg_player_color_mode_solid"
+                         onchange="updateCustomColorMode();" />
+                  <span>Solid color</span>
+                </label>
+                <label style="display:flex; align-items:center; gap:0.4rem; margin:0; cursor:pointer;">
+                  <input type="radio" name="cfg_player_color_mode" value="gradient" id="cfg_player_color_mode_gradient"
+                         onchange="updateCustomColorMode();" />
+                  <span>Gradient</span>
+                </label>
+              </div>
+
+              <!-- Solid color picker -->
+              <div id="cfg_player_color_solid_row" style="display:flex; gap:0.5rem; align-items:center; margin-top: 0.5rem;">
                 <input type="color" id="cfg_player_custom_color"
                        style="width:60px; height:38px; padding:2px; cursor:pointer;"
-                       onchange="saveSetting('player_custom_color', this.value); document.getElementById('cfg_player_custom_color_text').value = this.value;" />
-                <input type="text" id="cfg_player_custom_color_text" placeholder="#1a1a2e or empty for default"
-                       style="flex:1;"
-                       onchange="document.getElementById('cfg_player_custom_color').value = this.value || '#1a1a2e'; saveSetting('player_custom_color', this.value);" />
-                <button class="secondary" type="button"
-                        onclick="document.getElementById('cfg_player_custom_color').value = '#1a1a2e'; document.getElementById('cfg_player_custom_color_text').value = ''; saveSetting('player_custom_color', '');">
-                  Reset to default
-                </button>
+                       oninput="document.getElementById('cfg_player_custom_color_text').value = this.value; updateCustomColorPreview();"
+                       onchange="commitCustomColor();" />
+                <input type="text" id="cfg_player_custom_color_text" placeholder="#1a1a2e"
+                       style="flex:1; max-width: 200px;"
+                       onchange="document.getElementById('cfg_player_custom_color').value = this.value || '#1a1a2e'; commitCustomColor();" />
               </div>
+
+              <!-- Gradient pickers -->
+              <div id="cfg_player_color_gradient_row" style="display:none; gap:0.5rem; align-items:center; margin-top: 0.5rem; flex-wrap: wrap;">
+                <div style="display:flex; align-items:center; gap:0.3rem;">
+                  <label style="margin:0; font-size:0.85rem;">Top:</label>
+                  <input type="color" id="cfg_player_grad_top"
+                         style="width:50px; height:34px; padding:2px; cursor:pointer;"
+                         oninput="updateCustomColorPreview();"
+                         onchange="commitCustomColor();" />
+                </div>
+                <div style="display:flex; align-items:center; gap:0.3rem;">
+                  <label style="margin:0; font-size:0.85rem;">Bottom:</label>
+                  <input type="color" id="cfg_player_grad_bottom"
+                         style="width:50px; height:34px; padding:2px; cursor:pointer;"
+                         oninput="updateCustomColorPreview();"
+                         onchange="commitCustomColor();" />
+                </div>
+                <div style="display:flex; align-items:center; gap:0.3rem;">
+                  <label style="margin:0; font-size:0.85rem;">Direction:</label>
+                  <select id="cfg_player_grad_dir"
+                          onchange="updateCustomColorPreview(); commitCustomColor();"
+                          style="max-width: 130px;">
+                    <option value="180deg">↓ Top to bottom</option>
+                    <option value="0deg">↑ Bottom to top</option>
+                    <option value="90deg">→ Left to right</option>
+                    <option value="270deg">← Right to left</option>
+                    <option value="135deg">↘ Diagonal</option>
+                    <option value="45deg">↗ Diagonal</option>
+                  </select>
+                </div>
+              </div>
+
+              <!-- Live preview -->
+              <div style="margin-top: 0.75rem;">
+                <div class="muted" style="font-size: 0.78rem; margin-bottom: 0.3rem;">Preview:</div>
+                <div id="cfg_player_color_preview" style="
+                    height: 70px;
+                    border-radius: 8px;
+                    border: 1px solid var(--border);
+                    display: flex;
+                    align-items: center;
+                    padding: 12px;
+                    color: white;
+                    font-family: system-ui;
+                    font-size: 14px;
+                    box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+                    background: #1a1a2e;
+                    transition: background 0.2s;
+                ">
+                  <div style="width: 44px; height: 44px; border-radius: 6px; background: rgba(255,255,255,0.15); margin-right: 10px;"></div>
+                  <div style="flex: 1;">
+                    <div style="font-weight: 600;">Now Playing Title</div>
+                    <div style="font-size: 12px; opacity: 0.7;">Artist Name · 0:42 / 3:15</div>
+                  </div>
+                  <div style="display: flex; gap: 6px;">
+                    <span style="opacity: 0.7;">▶</span>
+                    <span style="opacity: 0.7;">▼</span>
+                  </div>
+                </div>
+              </div>
+
+              <button class="secondary" type="button" style="margin-top: 0.5rem;"
+                      onclick="resetCustomColor();">
+                Reset to default
+              </button>
+
               <p class="muted" style="font-size: 0.8rem; margin: 0.4rem 0 0;">
-                Leave empty for the default dark player. Useful when you have a themed viewer page and want the player to match.
+                Useful when you have a themed viewer page and want the player to match.
               </p>
             </div>
           </div>
@@ -1349,10 +1428,7 @@
       setVal('cfg_player_decoration', c.player_decoration || 'none');
       setChk('cfg_player_decoration_animated', c.player_decoration_animated);
       setChk('cfg_page_snow_enabled', c.page_snow_enabled);
-      const customColor = c.player_custom_color || '';
-      setVal('cfg_player_custom_color_text', customColor);
-      const colorInput = document.getElementById('cfg_player_custom_color');
-      if (colorInput) colorInput.value = customColor || '#1a1a2e';
+      loadCustomColorState(c.player_custom_color || '');
       updatePlayerCustomColorVisibility();
     }
 
@@ -1361,6 +1437,94 @@
       const row = document.getElementById('cfg_player_custom_color_row');
       if (!sel || !row) return;
       row.style.display = (sel.value === 'none') ? '' : 'none';
+    }
+
+    // ---- Custom player color (solid + gradient) ----
+    // Storage format:
+    //   ''                         → no override (default dark)
+    //   '#ff0000'                  → solid hex
+    //   'linear-gradient(...)'     → CSS gradient string
+    function loadCustomColorState(stored) {
+      const isGradient = stored && stored.indexOf('gradient') >= 0;
+      const solidEl = document.getElementById('cfg_player_custom_color');
+      const solidTextEl = document.getElementById('cfg_player_custom_color_text');
+      const gradTopEl = document.getElementById('cfg_player_grad_top');
+      const gradBotEl = document.getElementById('cfg_player_grad_bottom');
+      const gradDirEl = document.getElementById('cfg_player_grad_dir');
+      const radioSolid = document.getElementById('cfg_player_color_mode_solid');
+      const radioGrad = document.getElementById('cfg_player_color_mode_gradient');
+
+      if (isGradient) {
+        // Parse "linear-gradient(180deg, #aabbcc, #ddeeff)"
+        const m = stored.match(/linear-gradient\(\s*(\d+deg)\s*,\s*(#[0-9a-fA-F]{6})\s*,\s*(#[0-9a-fA-F]{6})\s*\)/);
+        if (m) {
+          gradDirEl.value = m[1];
+          gradTopEl.value = m[2];
+          gradBotEl.value = m[3];
+        } else {
+          gradDirEl.value = '180deg';
+          gradTopEl.value = '#1a1a2e';
+          gradBotEl.value = '#0f0f20';
+        }
+        radioGrad.checked = true;
+        // Defaults for solid even when gradient is selected
+        solidEl.value = '#1a1a2e';
+        solidTextEl.value = '';
+      } else {
+        radioSolid.checked = true;
+        solidEl.value = stored || '#1a1a2e';
+        solidTextEl.value = stored || '';
+        gradTopEl.value = '#1a1a2e';
+        gradBotEl.value = '#0f0f20';
+        gradDirEl.value = '180deg';
+      }
+      updateCustomColorMode();
+      updateCustomColorPreview();
+    }
+
+    function updateCustomColorMode() {
+      const isGrad = document.getElementById('cfg_player_color_mode_gradient').checked;
+      document.getElementById('cfg_player_color_solid_row').style.display = isGrad ? 'none' : 'flex';
+      document.getElementById('cfg_player_color_gradient_row').style.display = isGrad ? 'flex' : 'none';
+      updateCustomColorPreview();
+    }
+
+    function getCustomColorValue() {
+      const isGrad = document.getElementById('cfg_player_color_mode_gradient').checked;
+      if (isGrad) {
+        const top = document.getElementById('cfg_player_grad_top').value;
+        const bot = document.getElementById('cfg_player_grad_bottom').value;
+        const dir = document.getElementById('cfg_player_grad_dir').value;
+        return `linear-gradient(${dir}, ${top}, ${bot})`;
+      } else {
+        return document.getElementById('cfg_player_custom_color_text').value
+            || document.getElementById('cfg_player_custom_color').value
+            || '';
+      }
+    }
+
+    function updateCustomColorPreview() {
+      const preview = document.getElementById('cfg_player_color_preview');
+      if (!preview) return;
+      const v = getCustomColorValue();
+      preview.style.background = v || '#1a1a2e';
+    }
+
+    function commitCustomColor() {
+      const v = getCustomColorValue();
+      saveSetting('player_custom_color', v);
+      updateCustomColorPreview();
+    }
+
+    function resetCustomColor() {
+      document.getElementById('cfg_player_custom_color').value = '#1a1a2e';
+      document.getElementById('cfg_player_custom_color_text').value = '';
+      document.getElementById('cfg_player_grad_top').value = '#1a1a2e';
+      document.getElementById('cfg_player_grad_bottom').value = '#0f0f20';
+      document.getElementById('cfg_player_grad_dir').value = '180deg';
+      document.getElementById('cfg_player_color_mode_solid').checked = true;
+      updateCustomColorMode();
+      saveSetting('player_custom_color', '');
     }
 
     function setVal(id, v) {
