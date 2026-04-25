@@ -800,17 +800,18 @@
       panel.className = panel.className.split(/\s+/)
         .filter(c => !c.startsWith('of-theme-'))
         .join(' ').trim();
+      // Clear any prior inline background overrides
+      panel.style.removeProperty('background');
+      panel.style.removeProperty('background-image');
+      panel.style.removeProperty('background-color');
       if (theme !== 'none') {
         panel.classList.add('of-theme-' + theme);
-        panel.style.backgroundImage = '';  // clear any custom override
       } else if (customColorKey) {
-        // Apply custom color when no theme + admin set a color
-        panel.style.backgroundImage = 'none';
-        panel.style.backgroundColor = customColorKey;
-      } else {
-        panel.style.backgroundImage = '';
-        panel.style.backgroundColor = '';
+        // Custom color when no theme — must use !important to beat the CSS rule's !important
+        panel.style.setProperty('background-image', 'none', 'important');
+        panel.style.setProperty('background-color', customColorKey, 'important');
       }
+      // (else: leave defaults, base CSS rule applies)
 
       // Create overlay layer if missing.
       // Lives INSIDE the player bar (top:0, left:0, full width/height) so the
