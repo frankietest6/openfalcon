@@ -9,7 +9,8 @@ const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const router = express.Router();
 const config = require('../config');
-const { db, getConfig, updateConfig } = require('../lib/db');
+const { db, getConfig, updateConfig,
+        listSnapshots, createSnapshot, restoreSnapshot, deleteSnapshot, renameSnapshot } = require('../lib/db');
 
 // ============================================================
 // Auth
@@ -834,6 +835,57 @@ router.delete('/queue/:id', requireAdmin, (req, res) => {
   db.prepare(`DELETE FROM jukebox_queue WHERE id = ?`).run(id);
   const io = req.app.get('io');
   if (io) io.emit('queueUpdated');
+  res.json({ ok: true });
+});
+
+// ============================================================
+// Sequence snapshots — save/restore the sequences list as a named snapshot
+// ============================================================
+
+router.get('/snapshots', requireAdmin, (req, res) => {
+  res.json({ snapshots: listSnapshots() });
+});
+
+router.post('/snapshots', requireAdmin, (req, res) => {
+  const { name, description } = req.body || {};
+  if (!name || !String(name).trim()) {
+    return res.status(400).json({ error: 'name is required' });
+  }
+  try {
+    const result = createSnapshot(String(name).trim(), description ? String(description).trim() : null);
+    res.json({ ok: true, ...result });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.post('/snapshots/:id/restore', requireAdmin, (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid id' });
+  try {
+    const restored = restoreSnapshot(id);
+    if (restored === 0) return res.status(404).json({ error: 'snapshot not found or empty' });
+    res.json({ ok: true, restored });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.patch('/snapshots/:id', requireAdmin, (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid id' });
+  const { name, description } = req.body || {};
+  if (!name || !String(name).trim()) {
+    return res.status(400).json({ error: 'name is required' });
+  }
+  renameSnapshot(id, String(name).trim(), description ? String(description).trim() : null);
+  res.json({ ok: true });
+});
+
+router.delete('/snapshots/:id', requireAdmin, (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isFinite(id)) return res.status(400).json({ error: 'invalid id' });
+  deleteSnapshot(id);
   res.json({ ok: true });
 });
 

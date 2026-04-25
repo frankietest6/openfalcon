@@ -268,80 +268,113 @@
   // ============================================================
   // ============================================================
   // PAGE-WIDE SNOW — gently falling snowflakes across the viewer page
-  // Enabled via admin Viewer Page tab. Spawns 50 SVG flakes that drift
-  // down with horizontal sway. Pointer-events:none so doesn't block clicks.
-  // Auto-disabled when prefers-reduced-motion is set.
+  // Toggleable live via admin Viewer Page tab — polls /api/visual-config
+  // every 5 seconds and creates/destroys the snow layer accordingly.
+  // pointer-events:none so it doesn't block clicks. Auto-disabled when
+  // prefers-reduced-motion is set at the OS level.
   // ============================================================
   (function initPageSnow() {
-    const cfg = window.__OPENFALCON__ || {};
-    if (!cfg.pageSnowEnabled) return;
-    if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const prefersReduced = window.matchMedia &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (prefersReduced) return; // nothing we can do — respect the setting always
 
-    const layer = document.createElement('div');
-    layer.id = 'of-page-snow';
-    layer.setAttribute('aria-hidden', 'true');
-    layer.style.cssText = `
-      position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-      pointer-events: none; z-index: 9990; overflow: hidden;
-    `;
+    let snowLayer = null;
+    let snowStyleEl = null;
 
-    // Single shared snowflake SVG (referenced by use? — keep inline for simplicity)
-    const flakeSvg = `<svg viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg">
-      <g stroke="#ffffff" stroke-width="0.8" stroke-linecap="round" fill="none" opacity="0.9">
-        <line x1="7" y1="1" x2="7" y2="13"/>
-        <line x1="1" y1="7" x2="13" y2="7"/>
-        <line x1="2.5" y1="2.5" x2="11.5" y2="11.5"/>
-        <line x1="2.5" y1="11.5" x2="11.5" y2="2.5"/>
-        <path d="M 7,2 L 6,3 M 7,2 L 8,3"/>
-        <path d="M 7,12 L 6,11 M 7,12 L 8,11"/>
-        <path d="M 2,7 L 3,6 M 2,7 L 3,8"/>
-        <path d="M 12,7 L 11,6 M 12,7 L 11,8"/>
-      </g>
-    </svg>`;
-
-    // Pseudo-random but deterministic — same flakes every load looks weird,
-    // so use Math.random for variety
-    const flakeCount = 50;
-    const flakes = [];
-    for (let i = 0; i < flakeCount; i++) {
-      const flake = document.createElement('div');
-      const size = 8 + Math.random() * 14;       // 8-22px
-      const left = Math.random() * 100;          // % across viewport
-      const duration = 8 + Math.random() * 10;   // 8-18s fall time
-      const delay = -Math.random() * duration;   // negative so they're already mid-fall on load
-      const sway = 20 + Math.random() * 40;      // px horizontal drift
-      const opacity = 0.4 + Math.random() * 0.5; // 0.4-0.9
-      flake.style.cssText = `
-        position: absolute;
-        left: ${left}vw;
-        top: -30px;
-        width: ${size}px;
-        height: ${size}px;
-        opacity: ${opacity};
-        filter: drop-shadow(0 0 2px rgba(255,255,255,0.4));
-        animation: ofPageSnowFall ${duration}s linear infinite,
-                   ofPageSnowSway ${duration / 2}s ease-in-out infinite alternate;
-        animation-delay: ${delay}s, ${delay}s;
-        --of-sway: ${sway}px;
+    // CSS keyframes go in once and stay (no harm leaving them present)
+    function ensureSnowStyle() {
+      if (snowStyleEl) return;
+      snowStyleEl = document.createElement('style');
+      snowStyleEl.textContent = `
+        @keyframes ofPageSnowFall {
+          0%   { transform: translateY(-30px) rotate(0deg); }
+          100% { transform: translateY(105vh) rotate(360deg); }
+        }
+        @keyframes ofPageSnowSway {
+          0%   { margin-left: 0; }
+          100% { margin-left: var(--of-sway); }
+        }
       `;
-      flake.innerHTML = flakeSvg;
-      layer.appendChild(flake);
-      flakes.push(flake);
+      document.head.appendChild(snowStyleEl);
     }
 
-    const style = document.createElement('style');
-    style.textContent = `
-      @keyframes ofPageSnowFall {
-        0%   { transform: translateY(-30px) rotate(0deg); }
-        100% { transform: translateY(105vh) rotate(360deg); }
+    function startSnow() {
+      if (snowLayer) return; // already running
+      ensureSnowStyle();
+      snowLayer = document.createElement('div');
+      snowLayer.id = 'of-page-snow';
+      snowLayer.setAttribute('aria-hidden', 'true');
+      snowLayer.style.cssText = `
+        position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+        pointer-events: none; z-index: 9990; overflow: hidden;
+      `;
+      const flakeSvg = `<svg viewBox="0 0 14 14" xmlns="http://www.w3.org/2000/svg">
+        <g stroke="#ffffff" stroke-width="0.8" stroke-linecap="round" fill="none" opacity="0.9">
+          <line x1="7" y1="1" x2="7" y2="13"/>
+          <line x1="1" y1="7" x2="13" y2="7"/>
+          <line x1="2.5" y1="2.5" x2="11.5" y2="11.5"/>
+          <line x1="2.5" y1="11.5" x2="11.5" y2="2.5"/>
+          <path d="M 7,2 L 6,3 M 7,2 L 8,3"/>
+          <path d="M 7,12 L 6,11 M 7,12 L 8,11"/>
+          <path d="M 2,7 L 3,6 M 2,7 L 3,8"/>
+          <path d="M 12,7 L 11,6 M 12,7 L 11,8"/>
+        </g>
+      </svg>`;
+      const flakeCount = 50;
+      for (let i = 0; i < flakeCount; i++) {
+        const flake = document.createElement('div');
+        const size = 8 + Math.random() * 14;
+        const left = Math.random() * 100;
+        const duration = 8 + Math.random() * 10;
+        const delay = -Math.random() * duration;
+        const sway = 20 + Math.random() * 40;
+        const opacity = 0.4 + Math.random() * 0.5;
+        flake.style.cssText = `
+          position: absolute;
+          left: ${left}vw;
+          top: -30px;
+          width: ${size}px;
+          height: ${size}px;
+          opacity: ${opacity};
+          filter: drop-shadow(0 0 2px rgba(255,255,255,0.4));
+          animation: ofPageSnowFall ${duration}s linear infinite,
+                     ofPageSnowSway ${duration / 2}s ease-in-out infinite alternate;
+          animation-delay: ${delay}s, ${delay}s;
+          --of-sway: ${sway}px;
+        `;
+        flake.innerHTML = flakeSvg;
+        snowLayer.appendChild(flake);
       }
-      @keyframes ofPageSnowSway {
-        0%   { margin-left: 0; }
-        100% { margin-left: var(--of-sway); }
-      }
-    `;
-    document.head.appendChild(style);
-    document.body.appendChild(layer);
+      document.body.appendChild(snowLayer);
+    }
+
+    function stopSnow() {
+      if (!snowLayer) return;
+      snowLayer.remove();
+      snowLayer = null;
+    }
+
+    // Apply server-provided state
+    function applySnowState(enabled) {
+      if (enabled) startSnow();
+      else stopSnow();
+    }
+
+    // Apply initial state from bootstrap (no flicker on first load if enabled)
+    const bootstrap = window.__OPENFALCON__ || {};
+    applySnowState(bootstrap.pageSnowEnabled);
+
+    // Poll for live admin toggle changes
+    async function poll() {
+      try {
+        const r = await fetch('/api/visual-config', { credentials: 'include' });
+        if (r.ok) {
+          const data = await r.json();
+          applySnowState(!!data.pageSnowEnabled);
+        }
+      } catch {}
+    }
+    setInterval(poll, 5000);
   })();
 
   (function initListenOnPhone() {
@@ -452,6 +485,23 @@
       #of-listen-panel #of-listen-close:hover {
         color: #ef4444 !important;
       }
+
+      /* Marquee scroll for long titles/artists */
+      @keyframes ofMarquee {
+        0%   { transform: translateX(0); }
+        15%  { transform: translateX(0); }   /* hold start briefly */
+        50%  { transform: translateX(var(--of-marquee-offset, 0)); }
+        65%  { transform: translateX(var(--of-marquee-offset, 0)); }   /* hold end */
+        100% { transform: translateX(0); }
+      }
+      #of-listen-title.of-marquee-on,
+      #of-listen-artist.of-marquee-on {
+        animation: ofMarquee var(--of-marquee-duration, 10s) ease-in-out infinite;
+      }
+      #of-listen-title-wrap:hover #of-listen-title,
+      #of-listen-artist-wrap:hover #of-listen-artist {
+        animation-play-state: paused;
+      }
     `;
     document.head.appendChild(themeStyle);
 
@@ -474,11 +524,15 @@
              style="width: 48px; height: 48px; border-radius: 6px; object-fit: cover;
                     background: #333; flex-shrink: 0;" />
         <div style="flex: 1; min-width: 0;">
-          <div id="of-listen-title" style="font-weight: 600;
-               overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">Loading…</div>
-          <div id="of-listen-artist" style="font-size: 12px; color: #aaa;
-               overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"></div>
-          <div style="display: flex; gap: 8px; align-items: center; margin-top: 4px; font-size: 10px; color: #777;">
+          <div id="of-listen-title-wrap" style="overflow: hidden; white-space: nowrap;">
+            <div id="of-listen-title" style="font-weight: 600; display: inline-block;
+                 white-space: nowrap;">Loading…</div>
+          </div>
+          <div id="of-listen-artist-wrap" style="overflow: hidden; white-space: nowrap;">
+            <div id="of-listen-artist" style="font-size: 12px; color: rgba(255,255,255,0.65);
+                 display: inline-block; white-space: nowrap;"></div>
+          </div>
+          <div style="display: flex; gap: 8px; align-items: center; margin-top: 4px; font-size: 10px; color: rgba(255,255,255,0.5);">
             <span id="of-listen-status">Preparing…</span>
             <span id="of-listen-drift"></span>
           </div>
@@ -561,7 +615,9 @@
 
     // ---- DOM refs ----
     const titleEl = panel.querySelector('#of-listen-title');
+    const titleWrap = panel.querySelector('#of-listen-title-wrap');
     const artistEl = panel.querySelector('#of-listen-artist');
+    const artistWrap = panel.querySelector('#of-listen-artist-wrap');
     const coverEl = panel.querySelector('#of-listen-cover');
     const statusEl = panel.querySelector('#of-listen-status');
     const driftEl = panel.querySelector('#of-listen-drift');
@@ -570,6 +626,42 @@
     const minBtn = panel.querySelector('#of-listen-min');
     const closeBtn = panel.querySelector('#of-listen-close');
     const pillText = minimizedPill.querySelector('#of-listen-pill-text');
+
+    // Apply marquee scroll if text overflows the wrapper. Called after any
+    // title/artist text update. Adds 24px padding on the "scrolled-to" position
+    // so the user can see the full text comfortably. Speed scales with overflow:
+    // ~30 pixels per second feels readable.
+    function setupMarquee(textEl, wrapEl) {
+      // Clear existing animation first
+      textEl.classList.remove('of-marquee-on');
+      textEl.style.removeProperty('--of-marquee-offset');
+      textEl.style.removeProperty('--of-marquee-duration');
+      // Defer measurement so layout has a chance to settle
+      requestAnimationFrame(() => {
+        const overflow = textEl.scrollWidth - wrapEl.clientWidth;
+        if (overflow > 4) {
+          // Overflow is the distance we need to scroll. Negative because we're
+          // scrolling LEFT to reveal text on the right.
+          const offset = -(overflow + 12); // +12px so end of text is fully visible
+          const speed = 30; // px per second
+          // Total animation time: scroll out (50%) + scroll back (50%)
+          const duration = Math.max(6, (Math.abs(offset) * 2) / speed);
+          textEl.style.setProperty('--of-marquee-offset', offset + 'px');
+          textEl.style.setProperty('--of-marquee-duration', duration + 's');
+          textEl.classList.add('of-marquee-on');
+        }
+      });
+    }
+
+    // Re-evaluate marquee on viewport resize (rotation, browser resize)
+    let _marqueeResizeTimer = null;
+    window.addEventListener('resize', () => {
+      if (_marqueeResizeTimer) clearTimeout(_marqueeResizeTimer);
+      _marqueeResizeTimer = setTimeout(() => {
+        if (titleEl.textContent) setupMarquee(titleEl, titleWrap);
+        if (artistEl.textContent) setupMarquee(artistEl, artistWrap);
+      }, 250);
+    });
 
     // ---- SVG icons (swapped by setPlayIcon, setMuteIcon) ----
     const SVG_PLAY  = '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
@@ -696,6 +788,8 @@
           if (currentSource) stopAudio();
           titleEl.textContent = data.playing ? 'No audio for this sequence' : 'Show is not playing';
           artistEl.textContent = '';
+          setupMarquee(titleEl, titleWrap);
+          setupMarquee(artistEl, artistWrap);
           statusEl.textContent = '';
           pillText.textContent = 'Idle';
           return;
@@ -739,6 +833,8 @@
 
       titleEl.textContent = data.displayName || data.sequenceName;
       artistEl.textContent = data.artist || '';
+      setupMarquee(titleEl, titleWrap);
+      setupMarquee(artistEl, artistWrap);
       coverEl.src = data.imageUrl || '';
       coverEl.style.visibility = data.imageUrl ? 'visible' : 'hidden';
       statusEl.textContent = 'Loading audio…';

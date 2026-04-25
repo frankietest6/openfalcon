@@ -755,7 +755,7 @@
 
     <!-- Sticky header -->
     <header class="app-header">
-      <span class="app-brand">OpenFalcon <span class="app-version">v0.11.16</span></span>
+      <span class="app-brand">OpenFalcon <span class="app-version">v0.11.17</span></span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
       <span class="header-meta">
@@ -918,6 +918,34 @@
             <input type="text" id="newSeqDisplay" placeholder="Display name" style="flex:1;" />
             <input type="text" id="newSeqArtist" placeholder="Artist (optional)" style="flex:1;" />
             <button onclick="addSequence()">Add</button>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="row" style="justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+            <div>
+              <h2 style="margin: 0;">Sequence Snapshots</h2>
+              <p class="muted" style="font-size: 0.85rem; margin: 0.25rem 0 0;">
+                Save the current sequence list (with display names, artists, sort order, visibility, etc.)
+                so you can restore it later. Useful for season changeovers — save Halloween, switch to Christmas,
+                restore Halloween next year in one click.
+              </p>
+            </div>
+          </div>
+
+          <div style="background: var(--bg-input); padding: 0.75rem; border-radius: 6px; margin-bottom: 1rem;">
+            <div class="row" style="gap: 0.5rem; align-items: center; flex-wrap: wrap;">
+              <input type="text" id="newSnapshotName" placeholder="Snapshot name (e.g. Halloween 2026)"
+                     style="flex: 1; min-width: 200px; max-width: 320px;" />
+              <input type="text" id="newSnapshotDesc" placeholder="Description (optional)"
+                     style="flex: 2; min-width: 200px;" />
+              <button onclick="saveCurrentSnapshot()">📸 Save Snapshot</button>
+              <span id="snapshotSaveStatus" class="muted" style="font-size: 0.85rem;"></span>
+            </div>
+          </div>
+
+          <div id="snapshotsList" style="display: flex; flex-direction: column; gap: 0.5rem;">
+            <div class="muted" style="text-align: center; padding: 1rem;">Loading snapshots…</div>
           </div>
         </div>
       </div>
@@ -1344,6 +1372,7 @@
       // Refresh data when switching to these tabs
       if (name === 'queue') loadQueueTab();
       if (name === 'stats') loadStatsTab();
+      if (name === 'sequences') loadSnapshots();
     }
 
     function copyShowToken() {
@@ -1399,6 +1428,7 @@
         (window.loadConfig || loadConfig)(),
         (window.loadStats || loadStats)(),
         loadSequences(),
+        loadSnapshots(),
         (window.loadToken || loadToken)(),
         loadTemplates()
       ]);
@@ -2043,6 +2073,119 @@
       if (!confirm('Delete this sequence?')) return;
       await api('/sequences/' + id, { method: 'DELETE' });
       loadSequences();
+    }
+
+    // ============================================================
+    // Sequence snapshots
+    // ============================================================
+
+    async function loadSnapshots() {
+      const list = document.getElementById('snapshotsList');
+      if (!list) return;
+      const r = await api('/snapshots');
+      if (!r.ok) {
+        list.innerHTML = '<div class="muted" style="text-align:center;padding:1rem;">Failed to load snapshots</div>';
+        return;
+      }
+      const snaps = r.data?.snapshots || [];
+      if (snaps.length === 0) {
+        list.innerHTML = '<div class="muted" style="text-align:center;padding:1rem;">No snapshots yet. Save one to get started.</div>';
+        return;
+      }
+      list.innerHTML = snaps.map(s => {
+        const date = new Date(s.created_at + (s.created_at.includes('Z') ? '' : 'Z'));
+        const dateStr = date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        return `
+          <div class="row" style="background: var(--bg-input); padding: 0.75rem; border-radius: 6px;
+                                  align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+            <div style="flex: 1; min-width: 200px;">
+              <div style="font-weight: 600;">${escapeHtml(s.name)}</div>
+              ${s.description ? `<div class="muted" style="font-size: 0.85rem; margin-top: 0.15rem;">${escapeHtml(s.description)}</div>` : ''}
+              <div class="muted" style="font-size: 0.78rem; margin-top: 0.2rem;">
+                ${s.sequence_count} sequence${s.sequence_count === 1 ? '' : 's'} · saved ${dateStr}
+              </div>
+            </div>
+            <div class="row" style="gap: 0.4rem; margin: 0;">
+              <button class="secondary" onclick="renameSnap(${s.id}, ${JSON.stringify(s.name).replace(/"/g, '&quot;')}, ${JSON.stringify(s.description || '').replace(/"/g, '&quot;')})" style="font-size:0.85rem; padding:0.4rem 0.7rem;">Rename</button>
+              <button onclick="restoreSnap(${s.id}, ${JSON.stringify(s.name).replace(/"/g, '&quot;')}, ${s.sequence_count})" style="font-size:0.85rem; padding:0.4rem 0.7rem;">↩ Restore</button>
+              <button class="danger" onclick="deleteSnap(${s.id}, ${JSON.stringify(s.name).replace(/"/g, '&quot;')})" style="font-size:0.85rem; padding:0.4rem 0.7rem;">Delete</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function saveCurrentSnapshot() {
+      const nameEl = document.getElementById('newSnapshotName');
+      const descEl = document.getElementById('newSnapshotDesc');
+      const statusEl = document.getElementById('snapshotSaveStatus');
+      const name = nameEl.value.trim();
+      const description = descEl.value.trim();
+      if (!name) {
+        statusEl.textContent = 'Name is required';
+        statusEl.style.color = 'var(--accent)';
+        return;
+      }
+      statusEl.style.color = '';
+      statusEl.textContent = 'Saving…';
+      const r = await api('/snapshots', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, description }),
+      });
+      if (r.ok) {
+        statusEl.style.color = 'var(--success, #16a34a)';
+        statusEl.textContent = `✓ Saved ${r.data.count} sequences`;
+        nameEl.value = '';
+        descEl.value = '';
+        setTimeout(() => { statusEl.textContent = ''; }, 4000);
+        loadSnapshots();
+      } else {
+        statusEl.style.color = 'var(--accent)';
+        statusEl.textContent = r.data?.error || 'Save failed';
+      }
+    }
+
+    async function restoreSnap(id, name, count) {
+      const ok = confirm(
+        `Restore "${name}"?\n\n` +
+        `This will REPLACE your current sequences with the ${count} sequence(s) saved in this snapshot. ` +
+        `Play history, vote counts, and queue will be cleared for the replaced rows.\n\n` +
+        `Tip: save a snapshot of your current sequences first if you want to come back.`
+      );
+      if (!ok) return;
+      const r = await api('/snapshots/' + id + '/restore', { method: 'POST' });
+      if (r.ok) {
+        alert(`Restored ${r.data.restored} sequence(s) from "${name}".`);
+        loadSequences();
+      } else {
+        alert(r.data?.error || 'Restore failed');
+      }
+    }
+
+    async function deleteSnap(id, name) {
+      if (!confirm(`Delete snapshot "${name}"?\n\nThis cannot be undone, but does NOT affect your current sequences.`)) return;
+      const r = await api('/snapshots/' + id, { method: 'DELETE' });
+      if (r.ok) {
+        loadSnapshots();
+      } else {
+        alert('Delete failed');
+      }
+    }
+
+    async function renameSnap(id, currentName, currentDesc) {
+      const newName = prompt('New name for snapshot:', currentName);
+      if (newName === null || !newName.trim()) return;
+      const newDesc = prompt('New description (optional):', currentDesc);
+      if (newDesc === null) return;
+      const r = await api('/snapshots/' + id, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newName.trim(), description: newDesc.trim() }),
+      });
+      if (r.ok) {
+        loadSnapshots();
+      } else {
+        alert('Rename failed');
+      }
     }
 
     function escapeHtml(s) {

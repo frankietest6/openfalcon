@@ -300,16 +300,36 @@ router.post('/jukebox/add', (req, res) => {
 //   GET /api/audio-stream/:sequence   → the actual audio bytes (proxied from FPP)
 // ============================================================
 
+// Page visuals endpoint — polled by viewer page (independent of audio player)
+// so admin can toggle page snow / decoration live without anyone needing to
+// open the audio player. Cheap: just one config read.
+router.get('/visual-config', (req, res) => {
+  const cfg = getConfig();
+  res.json({
+    pageSnowEnabled: cfg.page_snow_enabled === 1,
+    playerDecoration: cfg.player_decoration || 'none',
+    playerDecorationAnimated: cfg.player_decoration_animated !== 0,
+    playerCustomColor: cfg.player_custom_color || '',
+  });
+});
+
 // Lightweight metadata endpoint — viewer page polls this to know what to play
 router.get('/now-playing-audio', (req, res) => {
   const np = getNowPlaying();
+  const cfg = getConfig();
+  // Visual settings that always apply regardless of playback state
+  const visualConfig = {
+    pageSnowEnabled: cfg.page_snow_enabled === 1,
+    playerDecoration: cfg.player_decoration || 'none',
+    playerDecorationAnimated: cfg.player_decoration_animated !== 0,
+    playerCustomColor: cfg.player_custom_color || '',
+  };
   if (!np || !np.sequence_name) {
-    return res.json({ playing: false });
+    return res.json({ playing: false, ...visualConfig });
   }
   const seq = getSequenceByName(np.sequence_name);
   if (!seq || !seq.media_name) {
-    // Sequence has no associated audio (sequence-only show or sync didn't include media)
-    return res.json({ playing: true, hasAudio: false, sequenceName: np.sequence_name });
+    return res.json({ playing: true, hasAudio: false, sequenceName: np.sequence_name, ...visualConfig });
   }
 
   // How long has this song been playing? Used to seek the listener forward.
@@ -319,7 +339,6 @@ router.get('/now-playing-audio', (req, res) => {
   // Build audio daemon URLs if a plugin has registered an FPP host.
   // The daemon runs on FPP itself (default port 8090) and serves audio
   // directly + a WebSocket time-sync channel. Browser connects to it directly.
-  const cfg = getConfig();
   const fppHost = cfg.plugin_fpp_host;
   const audioPort = cfg.audio_daemon_port || 8090;
   let directStreamUrl = null;
@@ -347,10 +366,8 @@ router.get('/now-playing-audio', (req, res) => {
     wsSyncUrl,
     // Proxy fallback (Phase 1) — works even without daemon
     streamUrl: `/api/audio-stream/${encodeURIComponent(seq.name)}`,
-    // Player decoration theme
-    playerDecoration: cfg.player_decoration || 'none',
-    playerDecorationAnimated: cfg.player_decoration_animated !== 0,
-    playerCustomColor: cfg.player_custom_color || '',
+    // Visual settings (snow, decoration, custom color) — always present
+    ...visualConfig,
   });
 });
 
