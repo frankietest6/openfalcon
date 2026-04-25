@@ -145,8 +145,12 @@ app.get('/', (req, res) => {
 // argument is the Base64-encoded rendered HTML; runtime JS decodes and
 // replaces the document.
 function buildObfuscationStub(encoded) {
-  // Funny visible content keeps casual sourcerers entertained instead of
-  // angry. A small comment block at the top is what they see first.
+  // The script runs in <head> BEFORE the body is parsed. document.open()
+  // resets the document, and document.write() of the full HTML at this
+  // stage is equivalent to the browser parsing the HTML directly — scripts
+  // execute, DOMContentLoaded fires correctly, etc. Doing this AFTER the
+  // body finishes parsing would just append text to the body without
+  // executing scripts, which is what was breaking the viewer page.
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -169,51 +173,46 @@ function buildObfuscationStub(encoded) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Light Show</title>
+<script>
+(function(){
+  var p='${encoded}';
+  try {
+    var bin = atob(p);
+    var bytes = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    var html = new TextDecoder('utf-8').decode(bytes);
+    // Replace the document. Because this script runs BEFORE the body has
+    // finished parsing, document.open() + document.write() is equivalent to
+    // the server having sent the real HTML — scripts in the payload execute,
+    // styles apply, the page works normally.
+    document.open();
+    document.write(html);
+    document.close();
+
+    // Reattach casual deterrents to the new document. Done after document.close()
+    // so they bind to the real page's document, not the stub's.
+    document.addEventListener('keydown', function(e){
+      if (e.ctrlKey && (e.key === 'u' || e.key === 'U')) { e.preventDefault(); return false; }
+      if (e.ctrlKey && e.shiftKey && (e.key === 'i' || e.key === 'I' || e.key === 'j' || e.key === 'J')) { e.preventDefault(); return false; }
+      if (e.key === 'F12') { e.preventDefault(); return false; }
+    }, true);
+    document.addEventListener('contextmenu', function(e){ e.preventDefault(); return false; }, true);
+  } catch (e) {
+    // Fallback if anything goes sideways — show a plain refresh prompt
+    // so the page isn't blank.
+    document.documentElement.innerHTML = '<head><title>Light Show</title></head><body style="background:#0a0e27;color:#fff;font-family:system-ui;text-align:center;padding:2rem;"><h2>Show is loading…</h2><p>If this page does not load in a few seconds, please refresh.</p><pre style="opacity:0.4;font-size:0.7rem;">' + (e && e.message || 'unknown error') + '</pre></body>';
+  }
+})();
+</script>
+</head>
+<body>
 <style>
   html,body{margin:0;padding:0;background:#0a0e27;color:#fff;font-family:system-ui,sans-serif;}
   .of-stub-loading{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:1rem;}
   .of-stub-loading .pulse{width:48px;height:48px;border-radius:50%;background:#dc2626;animation:ofStubPulse 1.2s ease-in-out infinite;}
   @keyframes ofStubPulse{0%,100%{transform:scale(0.85);opacity:0.6;}50%{transform:scale(1.1);opacity:1;}}
 </style>
-</head>
-<body>
 <div class="of-stub-loading"><div class="pulse"></div><div>Loading show…</div></div>
-<script>
-(function(){
-  // The real page lives in this string — Base64-encoded so it doesn't
-  // appear as readable HTML in view-source.
-  var p='${encoded}';
-  try {
-    var html = '';
-    // atob is built into every modern browser; decode the payload.
-    var bin = atob(p);
-    // Convert binary string to UTF-8 properly (atob returns Latin-1 by default)
-    var bytes = new Uint8Array(bin.length);
-    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-    html = new TextDecoder('utf-8').decode(bytes);
-
-    // Replace the document with the real content. document.open/write/close
-    // is the most reliable way to swap an entire page including <head>.
-    document.open();
-    document.write(html);
-    document.close();
-  } catch (e) {
-    // If anything goes wrong (browser too old, blocked, whatever), show a
-    // plain message rather than a blank page.
-    document.body.innerHTML = '<div style="padding:2rem;text-align:center;font-family:system-ui;"><h2>Show is loading…</h2><p>If this page does not load in a few seconds, please refresh.</p></div>';
-  }
-
-  // Casual deterrents — disable Ctrl+U / Ctrl+Shift+I / right-click. Real
-  // determined users open DevTools via menu instead, but most casual people
-  // give up at this layer.
-  document.addEventListener('keydown', function(e){
-    if (e.ctrlKey && (e.key === 'u' || e.key === 'U')) { e.preventDefault(); return false; }
-    if (e.ctrlKey && e.shiftKey && (e.key === 'i' || e.key === 'I' || e.key === 'j' || e.key === 'J')) { e.preventDefault(); return false; }
-    if (e.key === 'F12') { e.preventDefault(); return false; }
-  }, true);
-  document.addEventListener('contextmenu', function(e){ e.preventDefault(); return false; }, true);
-})();
-</script>
 </body>
 </html>`;
 }
