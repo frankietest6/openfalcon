@@ -1116,4 +1116,56 @@ router.delete('/snapshots/:id', requireAdmin, (req, res) => {
   res.json({ ok: true });
 });
 
+// ============================================================
+// Geocoding — address → lat/lng via OpenStreetMap Nominatim
+//
+// Nominatim's usage policy requires a real User-Agent identifying the
+// application + an absolute rate limit of 1 request/second. We proxy
+// server-side so:
+//   (1) We can set a proper User-Agent (browsers can't override it freely)
+//   (2) We don't leak the admin's IP/headers to Nominatim
+//   (3) We can rate-limit if needed (admin UI is not high-volume anyway)
+// ============================================================
+let _lastGeocodeAt = 0;
+router.get('/geocode', requireAdmin, async (req, res) => {
+  const q = String(req.query.q || '').trim();
+  if (!q) return res.status(400).json({ error: 'query required' });
+  if (q.length > 250) return res.status(400).json({ error: 'query too long' });
+
+  // Simple rate limit: at most 1 geocode per second per server.
+  // Nominatim's policy is strict; admins doing setup don't need more.
+  const now = Date.now();
+  const sinceLast = now - _lastGeocodeAt;
+  if (sinceLast < 1000) {
+    await new Promise(r => setTimeout(r, 1000 - sinceLast));
+  }
+  _lastGeocodeAt = Date.now();
+
+  try {
+    const url = `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=1&q=${encodeURIComponent(q)}`;
+    const r = await fetch(url, {
+      headers: {
+        // Nominatim usage policy requires an identifiable User-Agent.
+        // Don't claim to be a browser.
+        'User-Agent': 'OpenFalcon-Admin/1.0 (https://github.com/OFPlugin/openfalcon)',
+        'Accept': 'application/json',
+      },
+    });
+    if (!r.ok) return res.status(502).json({ error: 'geocode upstream returned ' + r.status });
+    const results = await r.json();
+    if (!Array.isArray(results) || results.length === 0) {
+      return res.json(null);
+    }
+    const top = results[0];
+    res.json({
+      lat: parseFloat(top.lat),
+      lng: parseFloat(top.lon),
+      displayName: top.display_name || '',
+    });
+  } catch (err) {
+    console.error('[geocode] error:', err.message);
+    res.status(500).json({ error: 'geocode failed: ' + err.message });
+  }
+});
+
 module.exports = router;

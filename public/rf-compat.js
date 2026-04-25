@@ -941,10 +941,11 @@
         pollTimer = setInterval(syncOnce, 1000);
         // Drift correction loop (cheap — just compares client clock to expected)
         driftTimer = setInterval(updateDriftDisplay, 250);
-        // Periodic FRESH location re-check — copyright safeguard. Every 60s
-        // while playing, re-verify the user is still at the show. Catches
-        // users who walked away after starting playback. Only runs when the
-        // admin has the audio distance gate enabled.
+        // Periodic FRESH location re-check — copyright safeguard. Every 15
+        // minutes while playing, re-verify the user is still at the show.
+        // 15min is a balance: catches users who walked away after starting
+        // playback without pestering listeners with constant GPS hits.
+        // Only runs when the admin has the audio distance gate enabled.
         if (boot.audioGateEnabled) {
           locationVerifyTimer = setInterval(async () => {
             const result = await window._ofVerifyLocationForAudio();
@@ -953,7 +954,7 @@
               applyAudioGateState(true, result.reason || 'Audio is no longer available.');
               statusEl.textContent = result.reason || 'Audio gate triggered.';
             }
-          }, 60000);
+          }, 15 * 60 * 1000);
         }
       } catch (err) {
         statusEl.textContent = 'Audio unavailable: ' + err.message;
