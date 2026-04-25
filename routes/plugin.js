@@ -159,6 +159,13 @@ setInterval(() => {
   }
 }, 60 * 1000);
 
+// Periodic cleanup of stale queue entries — handed off but never confirmed.
+// Anything older than 5 minutes is marked played to keep the queue clean.
+setInterval(() => {
+  const { cleanupStaleHandoffs } = require('../lib/db');
+  cleanupStaleHandoffs(300);
+}, 60 * 1000);
+
 // ============================================================
 // POST /api/plugin/playing
 // ============================================================
@@ -178,6 +185,15 @@ router.post('/playing', (req, res) => {
       INSERT INTO play_history (sequence_name, played_at, source)
       VALUES (?, CURRENT_TIMESTAMP, ?)
     `).run(name, source);
+
+    // If this is a viewer-requested song, mark its queue entry as played now
+    // (transitions from handed-off → confirmed-played)
+    if (source === 'request') {
+      const { markQueueEntryPlayed } = require('../lib/db');
+      markQueueEntryPlayed(name);
+      const io = req.app.get('io');
+      if (io) io.emit('queueUpdated');
+    }
 
     // Mark this sequence as played; reset its hidden counter
     // (only update sequences we actually know about — schedule fillers

@@ -111,13 +111,21 @@ router.get('/state', (req, res) => {
     SELECT sequence_name, COUNT(*) AS count FROM votes WHERE round_id = ? GROUP BY sequence_name
   `).all(cfg.current_voting_round);
 
-  const queue = db.prepare(`
-    SELECT sequence_name, requested_at FROM jukebox_queue
+  // Queue: all unplayed entries, ordered by request time. This now includes
+  // entries currently handed off to the plugin (handed_off_at IS NOT NULL,
+  // played=0). The currently-playing viewer request will be the first such
+  // entry; everything after it is genuinely "queued behind."
+  const queueAll = db.prepare(`
+    SELECT sequence_name, requested_at, handed_off_at FROM jukebox_queue
     WHERE played = 0 ORDER BY requested_at ASC
   `).all();
 
+  // Filter out the currently-playing entry from the queue display
+  const nowPlayingName = nowPlaying.sequence_name || null;
+  const queue = queueAll.filter(q => q.sequence_name !== nowPlayingName);
+
   // "Next up" priority order:
-  //   1. JUKEBOX mode + queue has entries → first queued request
+  //   1. JUKEBOX mode + queue has entries (after now-playing) → first queued
   //   2. VOTING mode + votes cast → highest-voted song
   //   3. Otherwise → whatever the schedule says
   let nextUp = nowPlaying.next_sequence_name || null;
