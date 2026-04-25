@@ -62,16 +62,48 @@
     });
   }
 
-  // Best-effort location fetch for the audio gate. Doesn't show messages on
-  // failure — silently leaves cachedLocation null. The audio gate logic falls
-  // back to "blocked, please share location" when location is missing.
+  // Force-fresh location fetch — used by the audio gate at the moment the
+  // user taps the player button. Bypasses the browser's position cache
+  // (maximumAge: 0) so we get the user's CURRENT physical location, not
+  // a cached reading from when they were elsewhere. This is the copyright
+  // safeguard: even if they granted permission earlier at home and drove
+  // to the show, or vice versa, this re-evaluates from scratch.
+  function getFreshLocation() {
+    return new Promise((resolve, reject) => {
+      if (!navigator.geolocation) {
+        reject(new Error('Location not supported on this device'));
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+          cachedLocation = loc; // update cache for follow-up requests
+          resolve(loc);
+        },
+        (err) => {
+          // Translate browser error codes to friendly messages
+          let msg = 'Location required to listen';
+          if (err.code === 1) msg = 'Location permission denied. Audio is restricted to listeners present at the show.';
+          else if (err.code === 2) msg = 'Could not determine your location.';
+          else if (err.code === 3) msg = 'Location lookup timed out.';
+          reject(new Error(msg));
+        },
+        // maximumAge: 0 forces a brand-new GPS reading every tap.
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      );
+    });
+  }
+
+  // Best-effort location fetch. Used by interaction endpoints (vote/jukebox)
+  // that already have their own location-required logic. NOT used by the
+  // audio gate — that uses getFreshLocation() above for stricter checks.
   function tryGetLocationSilently() {
     if (cachedLocation || !navigator.geolocation) return;
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         cachedLocation = { lat: pos.coords.latitude, lng: pos.coords.longitude };
       },
-      () => { /* silently ignore — gate will block until user grants */ },
+      () => { /* silently ignore */ },
       { enableHighAccuracy: false, timeout: 8000, maximumAge: 300000 }
     );
   }
@@ -389,14 +421,19 @@
   })();
 
   // ============================================================
-  // VISUAL CONFIG POLL — runs unconditionally (not gated on reduced-motion).
-  // Drives both snow toggle AND audio gate. Polls every 5s and fires once
-  // shortly after the location prompt resolves so the gate can unblock fast.
+  // VISUAL CONFIG POLL — runs unconditionally. Drives snow toggle and the
+  // server-side audio gate (control mode OFF, etc.). Does NOT include
+  // location; location is checked at click time, not page load. The
+  // server returns blocked: true only when the show is off — so the
+  // button is visible whenever the show is running, and clicking it
+  // triggers a fresh location prompt that's the actual safeguard.
   // ============================================================
   (function initVisualConfigPoll() {
     async function poll() {
       try {
-        const r = await fetch('/api/visual-config' + locationQuery(), { credentials: 'include' });
+        // Intentionally no location passed — see comment above. Server's
+        // gate decision here is purely "is the show running?".
+        const r = await fetch('/api/visual-config?gateCheck=mode', { credentials: 'include' });
         if (r.ok) {
           const data = await r.json();
           if (typeof window._ofApplySnowState === 'function') {
@@ -407,44 +444,81 @@
       } catch {}
     }
     setInterval(poll, 5000);
-    // Trigger location prompt immediately so the gate has something to evaluate
-    tryGetLocationSilently();
-    // Re-poll once shortly after location resolves (silent) for fast unblock
-    setTimeout(poll, 2500);
-    // Also poll once a bit later in case location took longer to resolve
-    setTimeout(poll, 6000);
+    poll(); // immediate initial poll
   })();
 
   // ============================================================
-  // AUDIO GATE — hides/shows the 🎧 launcher based on viewer distance
-  // (or location-permission state). When blocked, also forces any open
-  // player to stop and shows the reason text on the launcher area.
+  // AUDIO GATE
+  //
+  // Two distinct concerns, kept separate:
+  //   (1) Server-side block — show offline, control OFF, manual disable, etc.
+  //       When blocked, the launcher button is hidden via CSS class. This is
+  //       polled every 5s.
+  //   (2) Location verification — happens at the moment the user taps the
+  //       button (and periodically while audio plays). NOT on page load.
+  //       This means a stale page can't accidentally let someone who's
+  //       walked away (or never been there) play audio.
+  //
+  // The latch: once a server-side block fires during this page session, we
+  // don't auto-reveal the button. The user must refresh the page to start
+  // a fresh evaluation. This prevents auto-resume when admin flips control
+  // off→on while the page was open.
   // ============================================================
   let _audioGateBlocked = false;
   let _audioGateReason = '';
+  let _gateLatchedBlocked = false;
+
   function applyAudioGateState(blocked, reason) {
     _audioGateBlocked = blocked;
     _audioGateReason = reason;
+    if (blocked) _gateLatchedBlocked = true;
+    // Once latched, never auto-reveal. Refresh-to-recover.
+    const effectiveBlocked = blocked || _gateLatchedBlocked;
     const btn = document.getElementById('of-listen-btn');
     const pill = document.getElementById('of-listen-minimized-pill');
     const panel = document.getElementById('of-listen-panel');
     if (btn) {
-      // Toggle the gate-pending class. Uses !important in CSS so it wins
-      // over any inline display style set elsewhere (e.g. setMode transitions).
-      if (blocked) {
+      if (effectiveBlocked) {
         btn.classList.add('of-audio-gate-pending');
       } else {
         btn.classList.remove('of-audio-gate-pending');
       }
     }
-    if (pill && blocked) pill.style.display = 'none';
-    if (panel && blocked) {
+    if (pill && effectiveBlocked) pill.style.display = 'none';
+    if (panel && effectiveBlocked) {
       panel.style.display = 'none';
       try { window.dispatchEvent(new CustomEvent('openfalcon:audio-gate-blocked')); } catch {}
     }
   }
-  // Expose for diagnostics
-  window._ofAudioGate = () => ({ blocked: _audioGateBlocked, reason: _audioGateReason });
+  window._ofAudioGate = () => ({ blocked: _audioGateBlocked, latched: _gateLatchedBlocked, reason: _audioGateReason });
+
+  // Verify location with the server BEFORE allowing audio to start. This is
+  // called at click time (and during playback re-checks). Returns a Promise
+  // that resolves with { allowed, reason }. Forces a fresh GPS reading every
+  // call — no maximumAge cache trickery.
+  async function verifyLocationForAudio() {
+    let loc;
+    try {
+      loc = await getFreshLocation();
+    } catch (err) {
+      return { allowed: false, reason: err.message || 'Location required' };
+    }
+    try {
+      const r = await fetch(
+        `/api/visual-config?lat=${encodeURIComponent(loc.lat)}&lng=${encodeURIComponent(loc.lng)}`,
+        { credentials: 'include' }
+      );
+      if (!r.ok) return { allowed: false, reason: 'Server unavailable' };
+      const data = await r.json();
+      if (data.audioGateBlocked) {
+        return { allowed: false, reason: data.audioGateReason || 'Audio not available right now.' };
+      }
+      return { allowed: true };
+    } catch {
+      return { allowed: false, reason: 'Network error verifying location' };
+    }
+  }
+  window._ofVerifyLocationForAudio = verifyLocationForAudio;
 
   (function initListenOnPhone() {
     // ---- Floating launcher button ----
@@ -768,10 +842,39 @@
     let lastSyncResponse = null;  // raw response for debugging
     let pollTimer = null;
     let driftTimer = null;
+    let locationVerifyTimer = null;
     let pendingStartTimeout = null;
 
     // ---- UI handlers ----
-    btn.onclick = () => setMode('open');
+    // When the audio distance gate is enabled (admin opt-in), tapping the
+    // launcher triggers a fresh location verification before the player
+    // opens. getFreshLocation forces a brand-new GPS reading every time,
+    // so users who loaded the page elsewhere (or walked away after granting
+    // earlier) can't bypass the radius check via cached coordinates.
+    //
+    // When the gate is disabled, the click opens the player directly — no
+    // permission prompts, no GPS. Showrunners playing original or licensed
+    // content shouldn't have to ask viewers for location just to listen.
+    btn.onclick = async () => {
+      if (!boot.audioGateEnabled) {
+        setMode('open');
+        return;
+      }
+      const origIcon = btn.innerHTML;
+      btn.innerHTML = '⏳';
+      btn.disabled = true;
+      try {
+        const result = await window._ofVerifyLocationForAudio();
+        if (!result.allowed) {
+          alert(result.reason || 'Audio not available right now.');
+          return;
+        }
+        setMode('open');
+      } finally {
+        btn.innerHTML = origIcon;
+        btn.disabled = false;
+      }
+    };
     minBtn.onclick = () => setMode('minimized');
     closeBtn.onclick = () => setMode('closed');
     minimizedPill.onclick = () => setMode('open');
@@ -838,6 +941,20 @@
         pollTimer = setInterval(syncOnce, 1000);
         // Drift correction loop (cheap — just compares client clock to expected)
         driftTimer = setInterval(updateDriftDisplay, 250);
+        // Periodic FRESH location re-check — copyright safeguard. Every 60s
+        // while playing, re-verify the user is still at the show. Catches
+        // users who walked away after starting playback. Only runs when the
+        // admin has the audio distance gate enabled.
+        if (boot.audioGateEnabled) {
+          locationVerifyTimer = setInterval(async () => {
+            const result = await window._ofVerifyLocationForAudio();
+            if (!result.allowed) {
+              stopAudio();
+              applyAudioGateState(true, result.reason || 'Audio is no longer available.');
+              statusEl.textContent = result.reason || 'Audio gate triggered.';
+            }
+          }, 60000);
+        }
       } catch (err) {
         statusEl.textContent = 'Audio unavailable: ' + err.message;
       }
@@ -846,6 +963,7 @@
     function teardown() {
       if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
       if (driftTimer) { clearInterval(driftTimer); driftTimer = null; }
+      if (locationVerifyTimer) { clearInterval(locationVerifyTimer); locationVerifyTimer = null; }
       if (pendingStartTimeout) { clearTimeout(pendingStartTimeout); pendingStartTimeout = null; }
       if (audioCtx) { try { audioCtx.close(); } catch {} audioCtx = null; gainNode = null; }
       currentBuffer = null;

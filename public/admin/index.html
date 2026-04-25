@@ -1012,7 +1012,7 @@
 
     <!-- Sticky header -->
     <header class="app-header">
-      <span class="app-brand">OpenFalcon <span class="app-version">v0.13.2</span></span>
+      <span class="app-brand">OpenFalcon <span class="app-version">v0.13.3</span></span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
       <span class="header-meta">
@@ -1654,8 +1654,13 @@
 
             <h3 style="margin-top: 1.25rem;">Audio distance gate <span class="muted" style="font-size: 0.8rem; font-weight: normal;">(copyright safety)</span></h3>
             <p class="muted" style="font-size: 0.85rem; margin: 0 0 0.5rem;">
-              Hides the audio player entirely if the listener is outside the configured radius.
-              Useful for shows playing copyrighted music to avoid streaming to listeners not physically present.
+              When enabled, viewers must be physically near your show to listen.
+              Tapping the 🎧 button forces a fresh GPS check at click time —
+              cached location from earlier in the day or a different location won't bypass it.
+              Location is also re-verified every 60 seconds during playback,
+              so a viewer who walks away will be cut off automatically.
+              Recommended for shows playing licensed/copyrighted music.
+              Leave disabled if you only play original content or have streaming rights.
               Uses the same Show coordinates set above.
             </p>
             <div class="row">

@@ -343,14 +343,22 @@ router.post('/jukebox/add', (req, res) => {
 // open the audio player. Cheap: just one config read.
 router.get('/visual-config', (req, res) => {
   const cfg = getConfig();
-  // Audio gate: blocked when (a) viewer control is OFF (show isn't running
-  // any interactive mode, so audio shouldn't play), OR (b) gate is enabled
-  // and viewer is outside the radius / hasn't shared location.
+  // Audio gate: this endpoint controls whether the launcher BUTTON is visible.
+  // It does NOT do location verification — that happens via the dedicated
+  // location-verify flow when the user actually taps to listen. This means
+  // the button is visible whenever the show is running; tapping it triggers
+  // a fresh location check, which is the real copyright safeguard.
+  //
+  // (Legacy callers that DO pass lat/lng — like the now-playing-audio endpoint
+  // and the in-player periodic re-checks — still get a location-aware result.)
   let audioGateBlocked = false;
   let audioGateReason = '';
   if (cfg.viewer_control_mode === 'OFF') {
     audioGateBlocked = true;
     audioGateReason = 'Show is offline.';
+  } else if (req.query.gateCheck === 'mode') {
+    // Page-level visibility check — only care about control mode here.
+    // Location enforcement is the click-time + in-player concern.
   } else if (cfg.audio_gate_enabled === 1 && cfg.show_latitude && cfg.show_longitude) {
     const lat = parseFloat(req.query.lat);
     const lng = parseFloat(req.query.lng);
