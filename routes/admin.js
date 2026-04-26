@@ -543,6 +543,7 @@ router.put('/templates/:id', requireAdmin, (req, res) => {
   const { name, html } = req.body || {};
   const existing = db.prepare(`SELECT * FROM viewer_page_templates WHERE id = ?`).get(id);
   if (!existing) return res.status(404).json({ error: 'Template not found' });
+  if (existing.locked) return res.status(423).json({ error: 'Template is locked. Unlock to edit.' });
 
   const updates = [];
   const params = { id, now: new Date().toISOString() };
@@ -561,8 +562,22 @@ router.delete('/templates/:id', requireAdmin, (req, res) => {
   if (!row) return res.status(404).json({ error: 'Template not found' });
   if (row.is_builtin) return res.status(400).json({ error: "Can't delete built-in template. Duplicate and customize instead." });
   if (row.is_active) return res.status(400).json({ error: "Can't delete the active template. Activate another first." });
+  if (row.locked) return res.status(423).json({ error: "Can't delete a locked template. Unlock it first." });
   db.prepare(`DELETE FROM viewer_page_templates WHERE id = ?`).run(id);
   res.json({ ok: true });
+});
+
+// Toggle the lock state. Locked templates can be viewed but edits, commits,
+// renames, and deletes are blocked until unlocked. This protects committed
+// templates (especially purchased ones) from accidental overwrites during
+// designer experimentation.
+router.post('/templates/:id/toggle-lock', requireAdmin, (req, res) => {
+  const id = Number(req.params.id);
+  const row = db.prepare(`SELECT * FROM viewer_page_templates WHERE id = ?`).get(id);
+  if (!row) return res.status(404).json({ error: 'Template not found' });
+  const newLocked = row.locked ? 0 : 1;
+  db.prepare(`UPDATE viewer_page_templates SET locked = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`).run(newLocked, id);
+  res.json({ ok: true, locked: newLocked });
 });
 
 router.post('/templates/:id/activate', requireAdmin, (req, res) => {
@@ -620,6 +635,7 @@ router.post('/templates/:id/draft', requireAdmin, (req, res) => {
   const id = Number(req.params.id);
   const row = db.prepare(`SELECT * FROM viewer_page_templates WHERE id = ?`).get(id);
   if (!row) return res.status(404).json({ error: 'Template not found' });
+  if (row.locked) return res.status(423).json({ error: 'Template is locked. Unlock to edit.' });
 
   const { renderSettingsTemplate, renderBlocksTemplate } = require('../lib/visual-designer');
   const { mode, settings, blocks, html } = req.body || {};
@@ -653,6 +669,7 @@ router.post('/templates/:id/commit', requireAdmin, (req, res) => {
   const id = Number(req.params.id);
   const row = db.prepare(`SELECT * FROM viewer_page_templates WHERE id = ?`).get(id);
   if (!row) return res.status(404).json({ error: 'Template not found' });
+  if (row.locked) return res.status(423).json({ error: 'Template is locked. Unlock to commit changes.' });
   if (!row.draft_html) return res.status(400).json({ error: 'No draft to commit' });
   db.prepare(`
     UPDATE viewer_page_templates

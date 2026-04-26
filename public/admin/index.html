@@ -875,6 +875,29 @@
     .tpl-badge { font-size: 0.65rem; padding: 1px 6px; border-radius: 999px;
                  background: var(--status-success-soft); color: var(--status-success); font-weight: 700; }
     .tpl-badge.builtin { background: var(--status-neutral-soft); color: var(--text-muted); }
+    .tpl-badge.locked { background: rgba(234, 179, 8, 0.15); color: #eab308; }
+    .of-tpl-locked-banner {
+      background: rgba(234, 179, 8, 0.12);
+      border: 1px solid rgba(234, 179, 8, 0.4);
+      border-radius: 6px;
+      padding: 0.6rem 0.85rem;
+      margin-bottom: 0.75rem;
+      font-size: 0.85rem;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+    .of-tpl-locked-banner .lock-icon { font-size: 1.15rem; }
+    .of-tpl-locked-banner .banner-text { flex: 1; }
+    /* When locked, gray out the editor panes so it's visibly read-only */
+    .of-designer-locked input,
+    .of-designer-locked textarea,
+    .of-designer-locked button:not(.of-tpl-unlock-btn):not(.designer-tab):not(#tplActivateBtn):not(#tplDupBtn):not(#tplDeleteBtn):not(.secondary[onclick="newTemplate()"]):not([onclick="refreshPreview()"]) {
+      pointer-events: none;
+      opacity: 0.55;
+    }
+    .of-designer-locked .of-block-card { opacity: 0.7; }
 
     /* Now playing inline strip (Dashboard) */
     .now-playing-card {
@@ -1012,7 +1035,7 @@
 
     <!-- Sticky header -->
     <header class="app-header">
-      <span class="app-brand">OpenFalcon <span class="app-version">v0.14.5</span></span>
+      <span class="app-brand">OpenFalcon <span class="app-version">v0.14.6</span></span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
       <span class="header-meta">
@@ -1313,11 +1336,19 @@
               <div id="templateList"></div>
             </div>
 
-            <div>
+            <div id="designerEditorWrap">
               <div class="row" style="margin-bottom: 0.5rem; align-items: center;">
                 <input type="text" id="tplName" placeholder="Template name" style="flex: 1; margin: 0;" />
                 <span id="tplMeta" class="muted"></span>
                 <span id="tplDraftBadge" class="of-tpl-status of-tpl-status-saved">SAVED</span>
+                <button class="secondary" id="tplLockBtn" onclick="toggleTemplateLock()" title="Lock to prevent accidental edits">🔓 Lock</button>
+              </div>
+
+              <!-- Locked banner — appears when the selected template is locked -->
+              <div id="tplLockedBanner" class="of-tpl-locked-banner" style="display:none;">
+                <span class="lock-icon">🔒</span>
+                <span class="banner-text">This template is <strong>locked</strong>. Edits are blocked until you unlock it.</span>
+                <button class="of-tpl-unlock-btn" onclick="toggleTemplateLock()" style="margin: 0;">Unlock</button>
               </div>
 
               <!-- Designer sub-tabs -->
@@ -3231,6 +3262,7 @@
     // Viewer Page Templates + Monaco editor
     // ============================================================
     let monacoEditor = null;
+    let _suppressMonacoChange = false;
     let templates = [];
     let selectedTplId = null;
     let loadedContent = '';
@@ -3250,9 +3282,12 @@
             minimap: { enabled: false },
             fontSize: 13,
           });
-          // Edits in Code mode trigger debounced draft saves like Settings/Blocks
+          // Edits in Code mode trigger debounced draft saves. We skip when
+          // _suppressMonacoChange is true, which is set during programmatic
+          // setValue calls (e.g. when loading a template) so loading a
+          // template doesn't immediately mark it dirty.
           monacoEditor.onDidChangeModelContent(() => {
-            if (currentMode === 'code') saveDraftSoon();
+            if (currentMode === 'code' && !_suppressMonacoChange) saveDraftSoon();
           });
           resolve();
         });
@@ -3279,7 +3314,8 @@
         div.className = 'tpl-item' + (t.id === selectedTplId ? ' selected' : '');
         const activeBadge = t.is_active ? '<span class="tpl-badge">ACTIVE</span>' : '';
         const builtinBadge = t.is_builtin ? '<span class="tpl-badge builtin">BUILT-IN</span>' : '';
-        div.innerHTML = `<span style="flex:1;">${escapeHtml(t.name)}</span>${activeBadge}${builtinBadge}`;
+        const lockedBadge = t.locked ? '<span class="tpl-badge locked">🔒</span>' : '';
+        div.innerHTML = `<span style="flex:1;">${escapeHtml(t.name)}</span>${activeBadge}${builtinBadge}${lockedBadge}`;
         div.onclick = () => selectTemplate(t.id);
         list.appendChild(div);
       });
@@ -3313,7 +3349,12 @@
       if (monacoEditor) {
         const codeContent = tpl.draft_html || tpl.html || '';
         if (monacoEditor.getValue() !== codeContent) {
+          // Suppress the change handler so loading a template doesn't
+          // immediately flip hasDraft to true. The dirty flag should only
+          // come from real user edits.
+          _suppressMonacoChange = true;
           monacoEditor.setValue(codeContent);
+          _suppressMonacoChange = false;
         }
       }
       switchDesignerTab(mode);
@@ -3330,13 +3371,48 @@
       // Button states
       document.getElementById('tplActivateBtn').disabled = !!tpl.is_active;
       document.getElementById('tplDupBtn').disabled = false;
-      document.getElementById('tplDeleteBtn').disabled = tpl.is_active || tpl.is_builtin;
+      document.getElementById('tplDeleteBtn').disabled = tpl.is_active || tpl.is_builtin || !!tpl.locked;
+      applyLockUI(!!tpl.locked);
       updateDraftButtons();
 
       renderTemplateList();
     }
 
     function safeJsonParse(s) { try { return JSON.parse(s); } catch { return null; } }
+
+    // Apply the locked/unlocked visual state to the editor. When locked:
+    //   - Banner is shown
+    //   - Designer wrap gets a class that grays out + disables form inputs
+    //   - Lock button reads "Unlock" with closed padlock
+    //   - Monaco's read-only mode is enabled
+    // When unlocked, all of those are reversed.
+    function applyLockUI(locked) {
+      _isLocked = !!locked;
+      const banner = document.getElementById('tplLockedBanner');
+      const wrap = document.getElementById('designerEditorWrap');
+      const btn = document.getElementById('tplLockBtn');
+      if (banner) banner.style.display = locked ? '' : 'none';
+      if (wrap) wrap.classList.toggle('of-designer-locked', !!locked);
+      if (btn) {
+        btn.innerHTML = locked ? '🔒 Unlock' : '🔓 Lock';
+        btn.title = locked ? 'Unlock to allow edits' : 'Lock to prevent accidental edits';
+      }
+      if (monacoEditor) {
+        monacoEditor.updateOptions({ readOnly: !!locked });
+      }
+    }
+
+    async function toggleTemplateLock() {
+      if (selectedTplId === null) return;
+      const r = await api('/templates/' + selectedTplId + '/toggle-lock', { method: 'POST' });
+      if (!r.ok) {
+        alert(r.data?.error || 'Toggle lock failed');
+        return;
+      }
+      applyLockUI(!!r.data.locked);
+      // Refresh the template list so the badge updates
+      await loadTemplates();
+    }
 
     async function activateTemplate() {
       if (selectedTplId === null) return;
@@ -3411,8 +3487,12 @@
           if (monacoEditor) setTimeout(() => monacoEditor.layout(), 0);
         });
       }
-      // Re-render preview using the new mode's source of truth
-      saveDraftSoon();
+      // NOTE: don't fire saveDraftSoon here. Tab switching alone shouldn't
+      // mark the template dirty — that happened in the past and was a fast
+      // path to overwriting committed templates with empty form data when
+      // a user just clicked through tabs to peek at the layout. Edits within
+      // each pane (form inputs, block changes, Monaco edits) are what mark
+      // dirty and trigger draft saves.
     }
 
     async function loadDesignerMeta() {
@@ -3602,8 +3682,15 @@
     }
 
     // ---- Draft save / preview refresh ----
+    let _isLocked = false;  // mirrors current template's locked state for client-side gating
+
     function saveDraftSoon() {
       if (selectedTplId === null) return;
+      // Defense-in-depth: even if some UI control slipped past the disabled
+      // state, we don't want to send draft saves for a locked template (the
+      // server returns 423 anyway, but skipping the request entirely keeps
+      // the badge from flickering and avoids noisy errors).
+      if (_isLocked) return;
       hasDraft = true;
       updateDraftButtons();
       if (draftDebounceTimer) clearTimeout(draftDebounceTimer);
@@ -3631,7 +3718,9 @@
         // typing in Code (to avoid clobbering their cursor position).
         if (currentMode !== 'code' && monacoEditor && r.data?.html) {
           if (monacoEditor.getValue() !== r.data.html) {
+            _suppressMonacoChange = true;
             monacoEditor.setValue(r.data.html);
+            _suppressMonacoChange = false;
           }
         }
         refreshPreview();
