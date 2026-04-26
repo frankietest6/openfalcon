@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Rounded square background -->
+  <rect x="0" y="0" width="32" height="32" rx="6" fill="#1a3a5c"/>
+  <!-- "SP" letters in amber, weight balanced for 16px legibility -->
+  <text x="16" y="22" font-family="Inter, system-ui, -apple-system, sans-serif"
+        font-size="16" font-weight="800" fill="#f5b041"
+        text-anchor="middle" letter-spacing="-0.5">SP</text>
+</svg>

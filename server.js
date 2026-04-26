@@ -281,7 +281,12 @@ app.get('/admin/*', (req, res) => {
 });
 
 // Health check
-app.get('/health', (req, res) => res.json({ ok: true, version: '0.1.0' }));
+app.get('/health', (req, res) => {
+  // Pull current version from package.json so we don't have to edit two
+  // places on every release.
+  const pkg = require('./package.json');
+  res.json({ ok: true, version: pkg.version });
+});
 
 // ============================================================
 // Socket.IO

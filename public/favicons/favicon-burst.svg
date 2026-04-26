@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Navy rounded background -->
+  <rect x="0" y="0" width="32" height="32" rx="6" fill="#1a3a5c"/>
+  <!-- 8-point starburst, amber, centered -->
+  <g fill="#f5b041">
+    <!-- Vertical and horizontal arms (longer) -->
+    <path d="M 16 4 L 17 14 L 16 16 L 15 14 Z"/>
+    <path d="M 16 28 L 17 18 L 16 16 L 15 18 Z"/>
+    <path d="M 4 16 L 14 17 L 16 16 L 14 15 Z"/>
+    <path d="M 28 16 L 18 17 L 16 16 L 18 15 Z"/>
+    <!-- Diagonal arms (shorter) -->
+    <path d="M 7 7 L 14.5 14.5 L 16 16 L 14.5 14.5 Z"/>
+    <path d="M 25 25 L 17.5 17.5 L 16 16 L 17.5 17.5 Z"/>
+    <path d="M 25 7 L 17.5 14.5 L 16 16 L 17.5 14.5 Z"/>
+    <path d="M 7 25 L 14.5 17.5 L 16 16 L 14.5 17.5 Z"/>
+  </g>
+  <!-- Center bright dot -->
+  <circle cx="16" cy="16" r="2.5" fill="#fde7a8"/>
+</svg>

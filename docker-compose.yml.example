@@ -1,0 +1,54 @@
+# ============================================================
+# ShowPilot — docker-compose example
+# ============================================================
+# Copy this file to docker-compose.yml and edit to taste, then:
+#
+#     docker compose up -d
+#
+# Things you'll likely change:
+#   - The host port (left side of "3100:3100") if 3100 is taken on your host
+#   - Mount paths for ./showpilot-data and ./showpilot-config (use absolute
+#     paths if you prefer)
+#   - The image source: build locally (default below) or pull from a registry
+#     (commented example below)
+#
+# Things you MUST do before first run:
+#   1. Copy config.example.js to ./showpilot-config/config.js
+#   2. Edit ./showpilot-config/config.js — change jwtSecret and showToken
+#      to long random strings (`openssl rand -hex 32` works great)
+# ============================================================
+
+services:
+  showpilot:
+    container_name: showpilot
+
+    # Build the image from the Dockerfile in this directory.
+    # Once you've cloned the repo and want to run, this is the simplest path.
+    build: .
+
+    # Alternative: pull a prebuilt image from a registry instead of building.
+    # (Not yet published — coming after launch. Uncomment when available.)
+    # image: ghcr.io/showpilotfpp/showpilot:latest
+
+    restart: unless-stopped
+
+    ports:
+      # Host:Container. Change the left side if 3100 is in use.
+      - "3100:3100"
+
+    volumes:
+      # Database, cover art, and any persistent data
+      - ./showpilot-data:/app/data
+
+      # Config file — mount as read-only since the app doesn't write it
+      - ./showpilot-config/config.js:/app/config.js:ro
+
+    # Optional: if you're behind a reverse proxy (Nginx Proxy Manager, Traefik,
+    # Caddy) on the same Docker host, add a network here so the proxy can reach
+    # the container by name. Otherwise the published port above is fine.
+    # networks:
+    #   - proxy
+
+# networks:
+#   proxy:
+#     external: true

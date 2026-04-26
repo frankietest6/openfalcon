@@ -101,6 +101,7 @@ If you don't use any location features, plain HTTP is fine.
 - [Install on Linux (RHEL/Fedora/Rocky/Alma)](#install--linux-rhel--fedora--rocky--alma)
 - [Install on macOS](#install--macos)
 - [Install on Windows](#install--windows)
+- [Install with Docker](#install--docker)
 - [First-run setup](#first-run-setup)
 - [Install the FPP plugin](#install-the-fpp-plugin)
 - [Configuration reference](#configuration-reference)
@@ -340,6 +341,46 @@ npm start
 Open `http://localhost:3100/admin`. Default login `admin` / `admin`.
 
 If Windows Firewall prompts you, allow the Node.js process to communicate. To run as a Windows service, use [NSSM](https://nssm.cc/) — see [Running as a service](#running-as-a-service).
+
+---
+
+## Install — Docker
+
+The repo includes a `Dockerfile` and `docker-compose.yml.example` for users who prefer containerized deploys. There's no published image yet — you build locally from the source. Multi-arch images on a registry will come after launch once the project has stabilized.
+
+```bash
+# Clone or download the latest release
+git clone https://github.com/ShowPilotFPP/ShowPilot.git showpilot
+cd showpilot
+
+# Set up data + config directories
+mkdir -p showpilot-data showpilot-config
+cp config.example.js showpilot-config/config.js
+
+# Edit the config — change jwtSecret and showToken to random strings.
+# `openssl rand -hex 32` generates a good random value.
+nano showpilot-config/config.js
+
+# Set up the compose file
+cp docker-compose.yml.example docker-compose.yml
+# Edit if you need to change the port mapping or paths
+nano docker-compose.yml
+
+# Build and start
+docker compose up -d
+
+# Watch the logs as it boots
+docker compose logs -f
+```
+
+Then open `http://<your-host>:3100/admin` and continue with [First-run setup](#first-run-setup).
+
+**Notes for Docker users:**
+
+- The container runs as a non-root `node` user (UID 1000). If you bind-mount the data directory, make sure your host directory is writable by UID 1000 — `chown -R 1000:1000 showpilot-data` if needed.
+- The data volume holds the SQLite database (`showpilot.db`) and cover-art uploads (`covers/`). Back this up regularly.
+- For HTTPS, put the container behind your existing reverse proxy (Nginx Proxy Manager, Traefik, Caddy). HTTPS termination at the proxy is the supported pattern — no built-in TLS in the container.
+- Updating: `git pull && docker compose build --no-cache && docker compose up -d`. Schema migrations run automatically on container start.
 
 ---
 

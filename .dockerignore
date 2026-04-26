@@ -1,0 +1,27 @@
+# Don't ship into image
+node_modules
+npm-debug.log
+*.tar.gz
+
+# Local config — users mount their own
+config.js
+config.local.js
+
+# Local data — users mount their own
+data
+
+# Git noise
+.git
+.gitignore
+.github
+
+# Editor cruft
+.vscode
+.idea
+*.swp
+.DS_Store
+
+# Docs that don't need to be in the image
+DEPLOY.md
+*.md
+!README.md
