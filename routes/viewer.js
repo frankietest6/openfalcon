@@ -7,7 +7,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const router = express.Router();
-const config = require('../config');
+const config = require('../lib/config-loader');
 const { db, getConfig, getNowPlaying, getActiveViewerCount, getSequenceByName } = require('../lib/db');
 const { bustCoverUrl } = require('../lib/cover-art');
 

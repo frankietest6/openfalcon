@@ -8,7 +8,7 @@ const express = require('express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const router = express.Router();
-const config = require('../config');
+const config = require('../lib/config-loader');
 const { db, getConfig, updateConfig,
         listSnapshots, createSnapshot, restoreSnapshot, deleteSnapshot, renameSnapshot } = require('../lib/db');
 

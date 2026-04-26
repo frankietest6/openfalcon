@@ -14,7 +14,7 @@
 
 const express = require('express');
 const router = express.Router();
-const config = require('../config');
+const config = require('../lib/config-loader');
 const {
   getConfig,
   updateConfig,

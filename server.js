@@ -5,45 +5,9 @@
 const express = require('express');
 const http = require('http');
 const path = require('path');
-const fs = require('fs');
 const cookieParser = require('cookie-parser');
 const { Server } = require('socket.io');
-
-// ============================================================
-// Config loader with sensible fallbacks.
-// Tries config.js first (the user-edited copy with their real secrets).
-// Falls back to config.example.js with a loud warning — useful for first-run
-// smoke tests, Docker boot before a config volume is mounted, etc. Without
-// this, the server crashes immediately on missing config.js with a cryptic
-// MODULE_NOT_FOUND, which is a poor first impression for users trying out
-// the Docker image.
-// ============================================================
-let config;
-try {
-  config = require('./config');
-} catch (err) {
-  if (err.code !== 'MODULE_NOT_FOUND') throw err;
-  const examplePath = path.join(__dirname, 'config.example.js');
-  if (!fs.existsSync(examplePath)) {
-    console.error('FATAL: neither config.js nor config.example.js found. Cannot start.');
-    process.exit(1);
-  }
-  console.warn('');
-  console.warn('==============================================================');
-  console.warn('  WARNING: config.js not found — using config.example.js');
-  console.warn('  ');
-  console.warn('  This is fine for a quick test, but the server is running');
-  console.warn('  with DEFAULT secrets that anyone with the source code knows.');
-  console.warn('  ');
-  console.warn('  Before exposing this to real users:');
-  console.warn('    cp config.example.js config.js');
-  console.warn('    edit config.js — change jwtSecret and showToken to');
-  console.warn('    long random strings (try `openssl rand -hex 32`)');
-  console.warn('==============================================================');
-  console.warn('');
-  config = require('./config.example');
-}
-
+const config = require('./lib/config-loader');
 const { cleanupStaleViewers } = require('./lib/db');
 
 const app = express();
