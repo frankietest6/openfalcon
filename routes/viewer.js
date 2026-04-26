@@ -490,19 +490,27 @@ router.get('/audio-stream/:sequence', async (req, res) => {
   // with installs that haven't upgraded their plugin yet.
   try {
     const audioCache = require('../lib/audio-cache');
-    const cachedPath = audioCache.getCachedPathForMediaName(seq.media_name);
-    if (cachedPath) {
+    const cachedFile = audioCache.getCachedFileForMediaName(seq.media_name);
+    if (cachedFile) {
       // Aggressive caching for cellular listeners. Audio file bytes are
       // immutable — same hash, same content. Cloudflare or other edge
       // caches can serve this aggressively.
       res.setHeader('Cache-Control', 'public, max-age=3600, s-maxage=86400');
+      // Set the correct MIME type from what the plugin uploaded. Critical
+      // for non-MP3 audio (M4A from extracted video, OGG, FLAC, etc.) —
+      // browsers can decode any of these via Web Audio API but ONLY if
+      // the Content-Type matches the actual bytes. Without this, the
+      // cache file is stored as <hash>.bin and Express's content-type
+      // sniffing would label it application/octet-stream, which makes
+      // the browser refuse to play it as audio.
+      res.setHeader('Content-Type', cachedFile.mimeType);
       // Diagnostic header so admins can verify cache vs FPP-proxy paths
       // in browser dev tools without server log access. Visible under
       // the Network tab → click request → Response Headers.
       res.setHeader('X-Audio-Source', 'cache');
       // sendFile handles Range/304/Accept-Ranges automatically. Browser
       // gets sample-precise seeking exactly as it would from FPP.
-      return res.sendFile(cachedPath, (err) => {
+      return res.sendFile(cachedFile.path, (err) => {
         if (err && !res.headersSent) {
           // Local file disappeared between lookup and send — extremely
           // rare race condition. Return 502 rather than retry; viewer's
