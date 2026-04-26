@@ -7,10 +7,35 @@
 const express = require('express');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const rateLimit = require('express-rate-limit');
 const router = express.Router();
 const config = require('../lib/config-loader');
 const { db, getConfig, updateConfig,
         listSnapshots, createSnapshot, restoreSnapshot, deleteSnapshot, renameSnapshot } = require('../lib/db');
+
+// ============================================================
+// Rate limiting
+// ============================================================
+// Limit login attempts to slow brute-force attacks. We track by source IP
+// (which respects the trustProxy config setting — direct deployments see
+// real remote IPs, reverse-proxy deployments see X-Forwarded-For).
+//
+// 8 attempts per 15 minutes per IP is generous for legitimate users
+// (forgotten passwords, typos) but ruinous for online brute force when
+// combined with bcrypt's slow comparison.
+//
+// We don't count successful logins toward the limit. The handler checks
+// the result and only triggers the limiter on auth failures.
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 8,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  // Don't count successful logins. The limiter sees every request, but
+  // skipSuccessfulRequests means a 200/2xx response doesn't burn the budget.
+  skipSuccessfulRequests: true,
+  message: { error: 'Too many login attempts. Please wait a few minutes and try again.' },
+});
 
 // ============================================================
 // Auth
@@ -38,20 +63,30 @@ function requireAdmin(req, res, next) {
   }
 }
 
-function issueSessionCookie(res, user) {
+function issueSessionCookie(res, user, req) {
   const expiresIn = user.remember_me ? `${REMEMBER_ME_DAYS}d` : `${config.sessionDurationHours}h`;
   const maxAge = user.remember_me
     ? REMEMBER_ME_DAYS * 24 * 3600 * 1000
     : config.sessionDurationHours * 3600 * 1000;
   const token = jwt.sign({ userId: user.id, username: user.username }, config.jwtSecret, { expiresIn });
+  // Auto-set `secure` flag whenever the request came in over HTTPS. We
+  // detect via req.secure (which respects Express's `trust proxy` setting,
+  // so reverse-proxy users get HTTPS detected via X-Forwarded-Proto when
+  // they have trustProxy enabled). For plain-HTTP deployments (LAN-only,
+  // testing) the flag stays off — otherwise the browser would reject the
+  // cookie and the user couldn't log in at all.
+  const cookieOpts = {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: !!(req && req.secure),
+  };
   // If remember_me is OFF, omit maxAge so it's a session cookie that dies with the browser
-  const cookieOpts = { httpOnly: true, sameSite: 'lax' };
   if (user.remember_me) cookieOpts.maxAge = maxAge;
   res.cookie(config.sessionCookieName, token, cookieOpts);
 }
 
 // POST /api/admin/login — body: { username, password, rememberMe }
-router.post('/login', async (req, res) => {
+router.post('/login', loginLimiter, async (req, res) => {
   const { username, password, rememberMe } = req.body || {};
   if (!username || !password) {
     return res.status(400).json({ error: 'Username and password required' });
@@ -75,7 +110,7 @@ router.post('/login', async (req, res) => {
   }
 
   recordUserLogin(user.id);
-  issueSessionCookie(res, user);
+  issueSessionCookie(res, user, req);
   res.json({
     ok: true,
     username: user.username,

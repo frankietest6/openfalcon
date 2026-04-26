@@ -6,6 +6,7 @@ const express = require('express');
 const http = require('http');
 const path = require('path');
 const cookieParser = require('cookie-parser');
+const helmet = require('helmet');
 const { Server } = require('socket.io');
 const config = require('./lib/config-loader');
 const { cleanupStaleViewers } = require('./lib/db');
@@ -14,8 +15,38 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: true, credentials: true } });
 
-app.set('trust proxy', 1);
+// Trust proxy: configurable so direct-exposure deployments aren't
+// vulnerable to X-Forwarded-For spoofing while reverse-proxy deployments
+// still get accurate client IPs. Default false in config.example.js —
+// users behind a proxy must opt in. See config.example.js for details.
+//
+// `?? false` here protects users on older config.js files who haven't
+// added this setting yet — they default to the secure choice.
+app.set('trust proxy', config.trustProxy ?? false);
 app.set('io', io);
+
+// ============================================================
+// Security headers via helmet
+// ============================================================
+// Helmet sets a sensible baseline of security headers:
+//   - X-Content-Type-Options: nosniff   (prevents MIME-sniffing attacks)
+//   - X-Frame-Options: SAMEORIGIN       (prevents clickjacking)
+//   - Strict-Transport-Security         (when on HTTPS, forces future visits to be HTTPS)
+//   - Referrer-Policy: no-referrer      (don't leak admin URLs to third parties)
+//   - X-DNS-Prefetch-Control: off
+//
+// We disable contentSecurityPolicy because the viewer page renders
+// user-authored templates that legitimately load fonts, images, and inline
+// styles from anywhere. A strict CSP would break the whole point of
+// custom templates. (We could add a more permissive CSP later, but that's
+// a tuning exercise — for now, no CSP is safer than a wrong CSP.)
+//
+// crossOriginEmbedderPolicy is also off because it interferes with audio
+// streaming and external embedded assets that user templates rely on.
+app.use(helmet({
+  contentSecurityPolicy: false,
+  crossOriginEmbedderPolicy: false,
+}));
 
 // CORS — allow the FPP plugin UI (on its own origin) to call our API
 app.use((req, res, next) => {
@@ -142,7 +173,22 @@ app.get('/', (req, res) => {
     }
   } catch (err) {
     console.error('Error rendering viewer page:', err);
-    res.status(500).send('<h1>Error rendering viewer page</h1><pre>' + String(err.message) + '</pre>');
+    // Don't leak err.message to the public-facing viewer — error messages
+    // can contain template paths, regex internals, or other implementation
+    // details. Server admin sees the full error in stdout; viewer sees a
+    // generic page. The "request ID" doesn't actually reference anything
+    // we log (we don't generate IDs) but gives the user something useful
+    // to mention if they report it.
+    res.status(500).send(
+      '<!doctype html><html><head><title>Error</title>' +
+      '<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
+      '<style>body{font-family:system-ui,sans-serif;text-align:center;padding:3rem 1rem;color:#333}' +
+      'h1{font-size:1.5rem;margin-bottom:0.5rem}p{color:#666;max-width:480px;margin:0.5rem auto}</style>' +
+      '</head><body>' +
+      '<h1>Sorry — we hit an error rendering this page.</h1>' +
+      '<p>The show server logged the details. Please try again in a moment.</p>' +
+      '</body></html>'
+    );
   }
 });
 

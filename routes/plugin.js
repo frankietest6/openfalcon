@@ -40,6 +40,42 @@ function requireBearerToken(req, res, next) {
 
 router.use(requireBearerToken);
 
+// ============================================================
+// Private IP validation for fppHost
+// ============================================================
+// We capture FPP's source IP from the heartbeat and use it as the upstream
+// for our audio proxy. To prevent that proxy from being weaponized into an
+// SSRF (e.g. if someone compromises the showToken AND can spoof X-
+// Forwarded-For), we validate the source IP looks like a private LAN
+// address. Public IPs are rejected outright — there is no legitimate
+// scenario where FPP and ShowPilot are running on different sides of the
+// public internet.
+//
+// We accept:
+//   - RFC1918 ranges: 10.x, 172.16-31.x, 192.168.x
+//   - Link-local: 169.254.x (rare but legitimate auto-config)
+//   - Loopback: handled separately as null (means same-host install)
+//
+// We REJECT:
+//   - Public IPv4 ranges
+//   - 169.254.169.254 specifically (cloud metadata service — common SSRF target)
+//   - IPv6 except loopback (no LAN IPv6 use case for FPP today)
+function isPrivateLanIp(ip) {
+  if (!ip || typeof ip !== 'string') return false;
+  // Cloud metadata endpoint — explicitly blocked even though it falls in 169.254.0.0/16
+  if (ip === '169.254.169.254') return false;
+  // Match RFC1918 + link-local
+  if (/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(ip)) return true;
+  if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(ip)) return true;
+  if (/^169\.254\.\d{1,3}\.\d{1,3}$/.test(ip)) return true;
+  const m172 = ip.match(/^172\.(\d{1,3})\.\d{1,3}\.\d{1,3}$/);
+  if (m172) {
+    const n = Number(m172[1]);
+    return n >= 16 && n <= 31;
+  }
+  return false;
+}
+
 // Track plugin heartbeats and sync — hydrated from config on startup,
 // re-saved to config whenever values change so restarts don't lose state.
 const pluginStatus = (() => {
@@ -259,13 +295,27 @@ router.post('/heartbeat', (req, res) => {
   let fppHost = req.ip || req.connection?.remoteAddress || null;
   if (fppHost && fppHost.startsWith('::ffff:')) fppHost = fppHost.slice(7);
   if (fppHost === '::1' || fppHost === '127.0.0.1') fppHost = null;
-  // Persist so server restarts don't lose state
-  updateConfig({
+
+  // Reject public IPs as fppHost. The audio proxy uses this value as the
+  // upstream — if an attacker had a compromised showToken AND could spoof
+  // their source IP, an unvalidated value here would allow them to redirect
+  // every audio-stream request to any internet host (SSRF). FPP only ever
+  // runs on a LAN, so a private-IP-only check is correct.
+  if (fppHost && !isPrivateLanIp(fppHost)) {
+    console.warn(`[plugin] Rejecting non-private fppHost: ${fppHost} (heartbeat ignored for IP storage)`);
+    fppHost = null;
+  }
+
+  // Persist so server restarts don't lose state. We only update plugin_fpp_host
+  // when we have a valid value — otherwise we'd clobber a known-good value
+  // every time a malformed heartbeat arrived.
+  const updates = {
     plugin_last_seen_at: pluginStatus.lastSeen,
     plugin_version: pluginStatus.version,
-    plugin_fpp_host: fppHost,
-  });
-  pluginStatus.fppHost = fppHost;
+  };
+  if (fppHost) updates.plugin_fpp_host = fppHost;
+  updateConfig(updates);
+  pluginStatus.fppHost = fppHost || pluginStatus.fppHost;
   res.json({ ok: true });
 });
 

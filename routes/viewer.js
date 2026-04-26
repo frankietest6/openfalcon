@@ -18,6 +18,9 @@ function ensureViewerToken(req, res) {
     res.cookie(config.sessionCookieName + '_viewer', token, {
       httpOnly: true,
       sameSite: 'lax',
+      // Auto-set secure flag when served over HTTPS. Same logic as admin
+      // session cookie — req.secure respects Express's trust proxy.
+      secure: !!req.secure,
       maxAge: 1000 * 60 * 60 * 24 * 365,
     });
   }
@@ -477,6 +480,31 @@ router.get('/audio-stream/:sequence', async (req, res) => {
   const fppHost = cfg.plugin_fpp_host;
   if (!fppHost) {
     return res.status(503).send('Audio streaming unavailable — plugin has not connected yet');
+  }
+
+  // Defense-in-depth SSRF check: even though plugin/heartbeat validates the
+  // fppHost on capture, we re-check here to refuse forwarding to anything
+  // that isn't a private LAN address. This handles two edge cases:
+  // (1) Old DB rows from before the heartbeat validator was added.
+  // (2) An attacker who somehow wrote a public IP into the config row
+  //     bypassing the plugin route. The proxy itself must not be a
+  //     trusting endpoint.
+  if (!/^(10\.|192\.168\.|169\.254\.)/.test(fppHost) &&
+      !/^172\.(1[6-9]|2\d|3[01])\./.test(fppHost)) {
+    console.warn(`[audio-stream] refusing non-private fppHost: ${fppHost}`);
+    return res.status(503).send('Audio streaming unavailable — invalid upstream configuration');
+  }
+  // Block cloud metadata endpoint specifically
+  if (fppHost === '169.254.169.254') {
+    return res.status(503).send('Audio streaming unavailable — invalid upstream configuration');
+  }
+
+  // Validate the media filename — refuse anything containing path traversal
+  // characters before constructing the upstream URL. encodeURIComponent
+  // doesn't actually defend here because FPP would decode the percent-
+  // encoded `..` back to `..` on its end.
+  if (/[\\/]/.test(seq.media_name) || seq.media_name.includes('..')) {
+    return res.status(400).send('Invalid media filename');
   }
 
   // Build upstream URL. FPP serves audio file BYTES at /api/file/Music/<file>.

@@ -8,6 +8,34 @@ module.exports = {
   port: 3100,
   host: '0.0.0.0',
 
+  // ============================================================
+  // Reverse proxy / "trust proxy"
+  // ============================================================
+  // ShowPilot uses the client IP for several things: rate limiting login
+  // attempts, blocking abusive viewers, and recording visitor analytics.
+  // It's important the IP is real, not spoofed.
+  //
+  // - If you run ShowPilot directly exposed (port-forward, no proxy):
+  //     trustProxy: false
+  //   This makes Express ignore X-Forwarded-For headers entirely, so an
+  //   attacker can't fake their IP by setting that header.
+  //
+  // - If you run ShowPilot behind a reverse proxy you control (Nginx
+  //   Proxy Manager, Caddy, Traefik, Cloudflare Tunnel, etc.):
+  //     trustProxy: 1
+  //   This trusts X-Forwarded-For from exactly one upstream hop. Almost
+  //   always correct for typical deployments — your proxy is the only thing
+  //   that should be setting that header.
+  //
+  // - If you have a chain of proxies (CDN → load balancer → app):
+  //     trustProxy: 2     // trust 2 hops
+  //
+  // - For CIDR-based trust (rarely needed):
+  //     trustProxy: 'loopback, 192.168.0.0/16'
+  //
+  // Default: false (most secure — assume direct exposure).
+  trustProxy: false,
+
   // Database
   dbPath: './data/showpilot.db',
 
