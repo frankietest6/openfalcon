@@ -108,6 +108,28 @@
     );
   }
 
+  // ============================================================
+  // Haversine distance — copy of the server's calculation so the player can
+  // do client-side proximity checks without a round trip. Used by the
+  // continuous watchPosition watcher started in startup() to react in
+  // seconds when a listener walks/drives away from the show, instead of
+  // waiting for the periodic server re-check to fire.
+  //
+  // Server is still authoritative — every audio-stream request goes through
+  // the server-side gate too, and the periodic re-check stays as a fallback
+  // for tampered clients and GPS outages. This is just a fast first line.
+  // ============================================================
+  function haversineMiles(lat1, lng1, lat2, lng2) {
+    const R = 3958.8; // Earth radius in miles
+    const toRad = (deg) => (deg * Math.PI) / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLng = toRad(lng2 - lng1);
+    const a =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+    return 2 * R * Math.asin(Math.min(1, Math.sqrt(a)));
+  }
+
   // Build query string with viewer location for endpoints that need it
   function locationQuery() {
     if (!cachedLocation) return '';
@@ -961,6 +983,17 @@
     let pollTimer = null;
     let driftTimer = null;
     let locationVerifyTimer = null;
+    // navigator.geolocation.watchPosition() handle — used for continuous
+    // proximity checking while audio plays. Only set when audio gate is
+    // enabled. Cleared in teardown() to release the GPS subscription.
+    let watchPositionId = null;
+    // Timestamp (ms) when audio playback started. We use this to grace-
+    // period the FIRST ~30 seconds of watchPosition updates, because the
+    // browser often fires the first update with a stale cached position
+    // from BEFORE the user reached the show. The click-time fresh-location
+    // check already proved they're in range, so we trust that for the
+    // first window and only start enforcing on watcher updates after.
+    let audioStartedAtMs = 0;
     let pendingStartTimeout = null;
 
     // ---- UI handlers ----
@@ -1059,12 +1092,105 @@
         pollTimer = setInterval(syncOnce, 1000);
         // Drift correction loop (cheap — just compares client clock to expected)
         driftTimer = setInterval(updateDriftDisplay, 250);
-        // Periodic FRESH location re-check — copyright safeguard. Every 15
-        // minutes while playing, re-verify the user is still at the show.
-        // 15min is a balance: catches users who walked away after starting
-        // playback without pestering listeners with constant GPS hits.
-        // Only runs when the admin has the audio distance gate enabled.
+
+        // ============================================================
+        // Audio gate — continuous proximity enforcement (v0.18.15+)
+        // ============================================================
+        // Two layers, both copyright safeguards:
+        //
+        //   1. CONTINUOUS — navigator.geolocation.watchPosition() fires
+        //      whenever the device's GPS subscription updates (typically
+        //      every few seconds when moving, less when stationary). On
+        //      each update, compute distance to the show. If outside the
+        //      radius, kick out immediately. This is the fast cutoff that
+        //      catches users who walk/drive away mid-playback.
+        //
+        //   2. PERIODIC — every 5 minutes, do a full server-side re-check
+        //      via verifyLocationForAudio(). This catches things the
+        //      continuous watcher can't: tampered clients (DevTools-
+        //      disabled watcher), GPS outages where the watcher stops
+        //      firing, and server-side state changes (admin turned the
+        //      gate off, control mode changed, etc).
+        //
+        // Both layers only run when boot.audioGateEnabled is true. Without
+        // an enabled gate, the player does no location checks at all.
+        // ============================================================
         if (boot.audioGateEnabled) {
+          // (1) Continuous watcher — only set up if we have show coords
+          // from the boot bundle. We need them to compute distance
+          // client-side. If they're missing (older server, gate enabled
+          // without coords configured), fall back to the periodic check
+          // alone — better than nothing.
+          if (
+            typeof boot.audioGateLatitude === 'number' &&
+            typeof boot.audioGateLongitude === 'number' &&
+            typeof boot.audioGateRadiusMiles === 'number' &&
+            'geolocation' in navigator
+          ) {
+            try {
+              watchPositionId = navigator.geolocation.watchPosition(
+                (pos) => {
+                  // Grace period: ignore the FIRST 30 seconds of watcher
+                  // updates after audio starts. The first watchPosition
+                  // callback often fires with a stale cached location
+                  // from BEFORE the user reached the show — but the
+                  // click-time fresh-location check already proved they
+                  // were in range, so honor that. After 30 seconds the
+                  // watcher's positions should be fresh.
+                  if (audioStartedAtMs === 0) return;  // not playing yet
+                  if (Date.now() - audioStartedAtMs < 30 * 1000) return;
+
+                  const dist = haversineMiles(
+                    pos.coords.latitude,
+                    pos.coords.longitude,
+                    boot.audioGateLatitude,
+                    boot.audioGateLongitude
+                  );
+                  if (dist > boot.audioGateRadiusMiles) {
+                    // Out of range — tear down audio immediately.
+                    stopAudio();
+                    applyAudioGateState(
+                      true,
+                      'Audio is only available to listeners present at the show.'
+                    );
+                    statusEl.textContent =
+                      'Audio stopped — you have moved away from the show.';
+                  }
+                },
+                (err) => {
+                  // Watcher errors are non-fatal — the periodic server
+                  // re-check below will still fire. Log for debugging.
+                  if (window.console && console.warn) {
+                    console.warn('[audio-gate] watchPosition error:', err.message || err);
+                  }
+                },
+                {
+                  // Coarse positioning is fine — we're checking "within
+                  // half a mile?" not "within 5 meters?" Setting
+                  // enableHighAccuracy: false saves significant battery
+                  // since the device can use cell-tower / Wi-Fi positioning
+                  // instead of waking the GPS chip continuously.
+                  enableHighAccuracy: false,
+                  // No maximumAge cap on the watcher — let the browser
+                  // batch positions however it wants. If the user is
+                  // stationary, fewer updates is correct.
+                  // No timeout — watchPosition shouldn't error on slow
+                  // fixes, it just doesn't fire until it has one.
+                }
+              );
+            } catch (e) {
+              // Browser threw on watchPosition setup — extremely rare,
+              // but don't let it break audio playback.
+              if (window.console && console.warn) {
+                console.warn('[audio-gate] watchPosition setup failed:', e.message || e);
+              }
+            }
+          }
+
+          // (2) Periodic server re-check — fallback layer. 5 minutes is
+          // a balance between catching tampered clients quickly and not
+          // hammering the server / GPS. Was 15 minutes before v0.18.15
+          // when continuous watching wasn't a thing.
           locationVerifyTimer = setInterval(async () => {
             const result = await window._ofVerifyLocationForAudio();
             if (!result.allowed) {
@@ -1072,7 +1198,7 @@
               applyAudioGateState(true, result.reason || 'Audio is no longer available.');
               statusEl.textContent = result.reason || 'Audio gate triggered.';
             }
-          }, 15 * 60 * 1000);
+          }, 5 * 60 * 1000);
         }
       } catch (err) {
         statusEl.textContent = 'Audio unavailable: ' + err.message;
@@ -1083,6 +1209,14 @@
       if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
       if (driftTimer) { clearInterval(driftTimer); driftTimer = null; }
       if (locationVerifyTimer) { clearInterval(locationVerifyTimer); locationVerifyTimer = null; }
+      // Release the GPS subscription so the device can put the GPS chip
+      // back to sleep. clearWatch is a no-op for null IDs but the guard
+      // keeps the code symmetric with the other clearInterval calls.
+      if (watchPositionId !== null) {
+        try { navigator.geolocation.clearWatch(watchPositionId); } catch {}
+        watchPositionId = null;
+      }
+      audioStartedAtMs = 0;
       if (pendingStartTimeout) { clearTimeout(pendingStartTimeout); pendingStartTimeout = null; }
       if (audioCtx) { try { audioCtx.close(); } catch {} audioCtx = null; gainNode = null; }
       currentBuffer = null;
@@ -1248,6 +1382,14 @@
         if (currentSource === src) { currentSource = null; setPlayIcon(false); }
       };
       currentSource = src;
+      // Mark when audio playback actually started. The watchPosition
+      // grace period uses this to ignore the (frequently stale) first
+      // watcher callback that fires immediately after audio begins.
+      // Set on every track start — a multi-track session resets the
+      // grace period each time, but that's fine since the user is by
+      // definition still in range if a previous track played without
+      // tripping the watcher.
+      if (audioStartedAtMs === 0) audioStartedAtMs = Date.now();
       setPlayIcon(true);
       statusEl.textContent = '';
     }
