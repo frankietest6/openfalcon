@@ -1292,7 +1292,7 @@
 
     <!-- Sticky header -->
     <header class="app-header">
-      <span class="app-brand">ShowPilot <span class="app-version">v0.19.1-beta</span><span class="app-beta-pill">Beta</span></span>
+      <span class="app-brand">ShowPilot <span class="app-version">v0.19.2-beta</span><span class="app-beta-pill">Beta</span></span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
       <span class="header-meta">
@@ -2192,7 +2192,8 @@
               <div class="muted" style="font-size: 0.8rem;">Total size</div>
               <div id="audioCacheSize" style="font-size: 1.4rem; font-weight: 600;">—</div>
             </div>
-            <div style="margin-left: auto;">
+            <div style="margin-left: auto; display: flex; gap: 0.5rem;">
+              <button class="secondary" onclick="clearAudioCache()">Clear</button>
               <button class="secondary" onclick="refreshAudioCacheStats()">Refresh</button>
             </div>
           </div>
@@ -3296,6 +3297,11 @@
       document.getElementById('sequenceCount').textContent = `(${r.data.length})`;
       const tbody = document.getElementById('sequencesBody');
       tbody.innerHTML = '';
+      // tbody.innerHTML wipes out any open preview row, so reset the
+      // tracker — without this, clicking the preview button on the same
+      // sequence again would close-then-not-reopen because we'd think
+      // it's still open.
+      _activePreviewId = null;
       r.data.forEach(seq => {
         tbody.appendChild(buildSequenceRow(seq));
       });
@@ -3336,6 +3342,7 @@
         <td><label class="toggle" style="transform:scale(0.7);"><input type="checkbox" ${seq.jukeboxable ? 'checked' : ''} onchange="updateSeqField(${seq.id}, 'jukeboxable', this.checked ? 1 : 0)" /><span class="slider"></span></label></td>
         <td><label class="toggle" style="transform:scale(0.7);"><input type="checkbox" ${seq.is_psa ? 'checked' : ''} onchange="updateSeqField(${seq.id}, 'is_psa', this.checked ? 1 : 0)" /><span class="slider"></span></label></td>
         <td style="white-space: nowrap;">
+          <button class="secondary" onclick="toggleSeqPreview(${seq.id})" title="Preview the audio for this sequence" style="margin-right: 0.4rem;">▶</button>
           <button class="secondary" onclick="openTrackSearchModal(${seq.id})" title="Search iTunes / MusicBrainz for the right title, artist, and cover" style="margin-right: 0.4rem;">🔍 Search</button>
           <button class="danger" onclick="delSeq(${seq.id})">Delete</button>
         </td>
@@ -3365,6 +3372,115 @@
       // Update local cache silently; don't reload to avoid yanking the user's focus
       const seq = sequencesCache.find(s => s.id === id);
       if (seq) seq[field] = trimmed;
+    }
+
+    // ======= Audio preview =======
+    // Toggles an inline player row beneath the sequence. Only one preview
+    // can be open at a time — opening another closes the existing one.
+    // Shows whether audio came from local cache or FPP fallback so admins
+    // can verify the cache is doing its job.
+    let _activePreviewId = null;
+
+    function toggleSeqPreview(seqId) {
+      // If clicking the same sequence's button, just close.
+      if (_activePreviewId === seqId) {
+        closeSeqPreview();
+        return;
+      }
+      // Close any other open preview first.
+      if (_activePreviewId !== null) {
+        closeSeqPreview();
+      }
+      openSeqPreview(seqId);
+    }
+
+    function closeSeqPreview() {
+      const existing = document.querySelector('.seq-preview-row');
+      if (existing) {
+        // Stop any active audio before removing — otherwise it keeps
+        // playing in the background even though the controls disappeared.
+        const audio = existing.querySelector('audio');
+        if (audio) {
+          try { audio.pause(); } catch (e) {}
+          // Revoke any blob URL we created (none right now, but reserved
+          // for future if we switch to blob fetching).
+        }
+        existing.remove();
+      }
+      _activePreviewId = null;
+    }
+
+    function openSeqPreview(seqId) {
+      const seq = (sequencesCache || []).find(s => s.id === seqId);
+      if (!seq) return;
+      // Locate the row to insert the preview row beneath.
+      const tbody = document.getElementById('sequencesBody');
+      const targetRow = tbody.querySelector('tr[data-id="' + seqId + '"]');
+      if (!targetRow) return;
+      // Total column count needs to match the sequences table or the
+      // colspan won't fill the whole row visually.
+      const colCount = tbody.parentElement.querySelector('thead tr').children.length;
+      const previewRow = document.createElement('tr');
+      previewRow.className = 'seq-preview-row';
+      previewRow.dataset.previewFor = seqId;
+      previewRow.innerHTML =
+        '<td colspan="' + colCount + '" style="padding: 0.6rem 1rem; background: var(--bg-elevated, rgba(255,255,255,0.03));">' +
+          '<div class="row" style="align-items: center; gap: 0.75rem; flex-wrap: wrap;">' +
+            '<audio id="seqPreviewAudio_' + seqId + '" controls preload="auto" style="flex: 1; min-width: 280px; height: 36px;"></audio>' +
+            '<span id="seqPreviewSource_' + seqId + '" class="muted" style="font-size: 0.85rem; min-width: 130px;">Loading…</span>' +
+            '<button class="secondary" onclick="closeSeqPreview()" style="padding: 0.3rem 0.7rem;">Close</button>' +
+          '</div>' +
+          '<div id="seqPreviewError_' + seqId + '" style="display: none; color: var(--status-danger); font-size: 0.85rem; margin-top: 0.4rem;"></div>' +
+        '</td>';
+      targetRow.parentElement.insertBefore(previewRow, targetRow.nextSibling);
+      _activePreviewId = seqId;
+
+      // Wire the audio element. Use the sequence NAME (not id) because
+      // /api/audio-stream/:sequence is keyed on the FPP sequence name —
+      // same endpoint the viewers use. This means the preview tests the
+      // exact same code path real users hit.
+      const audio = document.getElementById('seqPreviewAudio_' + seqId);
+      const sourceEl = document.getElementById('seqPreviewSource_' + seqId);
+      const errorEl = document.getElementById('seqPreviewError_' + seqId);
+      const streamUrl = '/api/audio-stream/' + encodeURIComponent(seq.name);
+
+      audio.src = streamUrl;
+      audio.addEventListener('error', function() {
+        // Audio element's error event fires when the network/decode fails.
+        // Codes are mostly unhelpful (4 = MEDIA_ERR_SRC_NOT_SUPPORTED) so
+        // we just say generic — admin can dig further if needed.
+        errorEl.style.display = '';
+        errorEl.textContent = 'Audio playback error. The file may not be cached yet, or the server returned an error.';
+        sourceEl.textContent = 'failed';
+        sourceEl.style.color = 'var(--status-danger)';
+      });
+
+      // Probe the source via HEAD — this lets us read the X-Audio-Source
+      // header without forcing the full audio download just for the
+      // indicator. The audio element does its own GET in parallel.
+      fetch(streamUrl, { method: 'HEAD', credentials: 'include' })
+        .then(function(res) {
+          if (!res.ok) {
+            sourceEl.textContent = 'HTTP ' + res.status;
+            sourceEl.style.color = 'var(--status-danger)';
+            return;
+          }
+          const src = (res.headers.get('X-Audio-Source') || 'unknown').toLowerCase();
+          if (src === 'cache') {
+            sourceEl.textContent = '⚡ from cache';
+            sourceEl.style.color = 'var(--status-success, #4ade80)';
+          } else if (src === 'fpp') {
+            sourceEl.textContent = '↪ via FPP proxy';
+            sourceEl.style.color = 'var(--status-warning, #f59e0b)';
+          } else {
+            sourceEl.textContent = src;
+            sourceEl.style.color = 'var(--text-dim)';
+          }
+        })
+        .catch(function(err) {
+          sourceEl.textContent = 'probe failed';
+          sourceEl.style.color = 'var(--status-danger)';
+        });
     }
 
     async function promptImageUrl(id, current) {

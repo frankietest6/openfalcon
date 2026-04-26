@@ -711,6 +711,32 @@ router.get('/audio-cache/stats', requireAdmin, (req, res) => {
   res.json(audioCache.getCacheStats());
 });
 
+// Clear the entire audio cache. Useful when the plugin uploaded files
+// with a format issue (e.g. a bad ffmpeg invocation produced unplayable
+// M4A) and we need to force a fresh re-sync. Removes both the on-disk
+// files AND the database rows. Next plugin sync will repopulate.
+router.post('/audio-cache/clear', requireAdmin, (req, res) => {
+  const fs = require('fs');
+  const audioCache = require('../lib/audio-cache');
+  const { db } = require('../lib/db');
+  let removed = 0;
+  try {
+    // Walk the on-disk cache dir directly — handles cases where the
+    // DB and disk got out of sync.
+    const dir = audioCache.cacheDir();
+    const files = fs.readdirSync(dir).filter(f => f.endsWith('.bin'));
+    for (const f of files) {
+      try { fs.unlinkSync(`${dir}/${f}`); removed++; } catch (_) { /* ignore */ }
+    }
+    // Then truncate the DB table so subsequent manifest queries return empty.
+    db.prepare('DELETE FROM audio_cache_files').run();
+    res.json({ ok: true, removed });
+  } catch (err) {
+    console.error('[admin/audio-cache/clear] failed:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ============================================================
 // Viewer Page Templates (CRUD)
 // ============================================================
