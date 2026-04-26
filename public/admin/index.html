@@ -296,8 +296,8 @@
 
     /* Modal overlay */
     .of-modal {
-      position: fixed; inset: 0; z-index: 100;
-      background: rgba(0,0,0,0.6);
+      position: fixed; inset: 0; z-index: 10000;
+      background: rgba(0,0,0,0.7);
       display: flex; align-items: center; justify-content: center;
       padding: 1rem;
     }
@@ -1275,7 +1275,7 @@
 
     <!-- Sticky header -->
     <header class="app-header">
-      <span class="app-brand">ShowPilot <span class="app-version">v0.18.11</span></span>
+      <span class="app-brand">ShowPilot <span class="app-version">v0.18.12</span></span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
       <span class="header-meta">
@@ -3590,6 +3590,7 @@
     let _tsmCurrentSeqId = null;
     let _tsmLastResults = [];
     let _tsmInflight = 0;  // request token to avoid stale results painting
+    let _tsmEscHandler = null;
 
     async function openTrackSearchModal(seqId) {
       _tsmCurrentSeqId = seqId;
@@ -3602,14 +3603,44 @@
         : '';
       document.getElementById('tsm_query').value = seed;
       document.getElementById('tsm_status').textContent = '';
-      document.getElementById('trackSearchModal').classList.remove('hidden');
+      const modal = document.getElementById('trackSearchModal');
+      modal.classList.remove('hidden');
+
+      // Wire up Escape-to-close. Also click-outside-card-to-close, since
+      // the of-modal backdrop covers the whole viewport — without these, a
+      // user who hits an unexpected error path could end up trapped in the
+      // modal with no obvious way out other than the "Close" button (which
+      // is sometimes scrolled out of view on smaller screens).
+      _tsmEscHandler = (e) => {
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          closeTrackSearchModal();
+        }
+      };
+      document.addEventListener('keydown', _tsmEscHandler);
+      modal.onclick = (e) => {
+        if (e.target === modal) closeTrackSearchModal();
+      };
+
       // Focus the input on next tick so the modal animation completes first
       setTimeout(() => document.getElementById('tsm_query').focus(), 30);
       runTrackSearch();
     }
 
     function closeTrackSearchModal() {
-      document.getElementById('trackSearchModal').classList.add('hidden');
+      const modal = document.getElementById('trackSearchModal');
+      modal.classList.add('hidden');
+      // Reset any visual disabled-state from a half-completed apply
+      const resultsEl = document.getElementById('tsm_results');
+      if (resultsEl) {
+        resultsEl.style.pointerEvents = '';
+        resultsEl.style.opacity = '';
+      }
+      if (_tsmEscHandler) {
+        document.removeEventListener('keydown', _tsmEscHandler);
+        _tsmEscHandler = null;
+      }
+      modal.onclick = null;
       _tsmCurrentSeqId = null;
       _tsmLastResults = [];
     }
@@ -3681,6 +3712,13 @@
       const resultsEl = document.getElementById('tsm_results');
       resultsEl.style.pointerEvents = 'none';
       resultsEl.style.opacity = '0.6';
+
+      // Capture deferred messages to surface AFTER closing the modal — we
+      // unconditionally close on every exit path so a user can never get
+      // trapped in this modal, even if something on the server side hangs
+      // or returns an unexpected response shape.
+      let deferredAlert = null;
+
       try {
         const r = await api(`/sequences/${seqId}/apply-search-result`, {
           method: 'POST',
@@ -3692,23 +3730,25 @@
           }),
         });
         if (!r.ok) {
-          showAlert(r.data?.error || 'Failed to apply result.');
-          resultsEl.style.pointerEvents = '';
-          resultsEl.style.opacity = '';
-          return;
+          deferredAlert = r.data?.error || 'Failed to apply result.';
+        } else if (!r.data.coverApplied && result.coverUrl) {
+          // Cover failed silently on the server side (e.g. 404 from Cover
+          // Art Archive) but the title/artist still updated. Mention it so
+          // the user knows to use the cover-only picker if they want art.
+          deferredAlert = 'Title and artist updated, but the cover image could not be downloaded.\n\nThe cover URL may be unavailable. You can try a different result, or use the cover picker on the artwork thumbnail.';
         }
-        // Cover may have failed silently on the server side (e.g. 404 from
-        // Cover Art Archive) but the title/artist still updated. Mention it
-        // so the user knows to use the cover-only picker if they want art.
-        if (!r.data.coverApplied && result.coverUrl) {
-          showAlert('Title and artist updated, but the cover image could not be downloaded.\n\nThe cover URL may be unavailable. You can try a different result, or use the cover picker on the artwork thumbnail.');
-        }
-        closeTrackSearchModal();
-        loadSequences();
       } catch (err) {
-        showAlert('Apply failed: ' + err.message);
-        resultsEl.style.pointerEvents = '';
-        resultsEl.style.opacity = '';
+        deferredAlert = 'Apply failed: ' + (err && err.message ? err.message : String(err));
+      } finally {
+        // ALWAYS close the modal so the user is never trapped, regardless
+        // of what happened during the apply. They can re-open and try
+        // again if they want.
+        closeTrackSearchModal();
+        // Refresh the table whether we succeeded or failed — partial
+        // updates may have landed (title only, no cover) and the user
+        // should see the current state.
+        loadSequences();
+        if (deferredAlert) showAlert(deferredAlert);
       }
     }
 
