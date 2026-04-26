@@ -9,11 +9,12 @@
 #   - The host port (left side of "3100:3100") if 3100 is taken on your host
 #   - Mount paths for ./showpilot-data and ./showpilot-config (use absolute
 #     paths if you prefer)
-#   - The image source: build locally (default below) or pull from a registry
-#     (commented example below)
+#   - The image tag (use a specific version like :0.18.5 to pin, or :latest
+#     for auto-updates with `docker compose pull`)
 #
 # Things you MUST do before first run:
 #   1. Copy config.example.js to ./showpilot-config/config.js
+#      (or download from https://raw.githubusercontent.com/ShowPilotFPP/ShowPilot/main/config.example.js)
 #   2. Edit ./showpilot-config/config.js — change jwtSecret and showToken
 #      to long random strings (`openssl rand -hex 32` works great)
 # ============================================================
@@ -22,13 +23,16 @@ services:
   showpilot:
     container_name: showpilot
 
-    # Build the image from the Dockerfile in this directory.
-    # Once you've cloned the repo and want to run, this is the simplest path.
-    build: .
+    # Pull a prebuilt multi-arch image from GitHub Container Registry.
+    # Supports linux/amd64 (x86 mini-PCs, NUCs) and linux/arm64 (Raspberry Pi
+    # 4/5, Apple Silicon). Docker auto-selects the right architecture.
+    image: ghcr.io/showpilotfpp/showpilot:latest
 
-    # Alternative: pull a prebuilt image from a registry instead of building.
-    # (Not yet published — coming after launch. Uncomment when available.)
-    # image: ghcr.io/showpilotfpp/showpilot:latest
+    # Alternative: build the image from source instead of pulling.
+    # Useful for developing against a local checkout, or for self-hosters who
+    # prefer to build their own images. Comment out the `image:` line above
+    # and uncomment this block.
+    # build: .
 
     restart: unless-stopped
 

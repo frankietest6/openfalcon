@@ -346,27 +346,26 @@ If Windows Firewall prompts you, allow the Node.js process to communicate. To ru
 
 ## Install — Docker
 
-The repo includes a `Dockerfile` and `docker-compose.yml.example` for users who prefer containerized deploys. There's no published image yet — you build locally from the source. Multi-arch images on a registry will come after launch once the project has stabilized.
+Multi-architecture images (amd64 + arm64) are published to GitHub Container Registry. Pull, configure, run — no build step required.
 
 ```bash
-# Clone or download the latest release
-git clone https://github.com/ShowPilotFPP/ShowPilot.git showpilot
-cd showpilot
+# Make a working directory
+mkdir showpilot && cd showpilot
 
 # Set up data + config directories
-mkdir -p showpilot-data showpilot-config
-cp config.example.js showpilot-config/config.js
+mkdir showpilot-data showpilot-config
 
-# Edit the config — change jwtSecret and showToken to random strings.
-# `openssl rand -hex 32` generates a good random value.
-nano showpilot-config/config.js
+# Download the example config file and edit it
+curl -O https://raw.githubusercontent.com/ShowPilotFPP/ShowPilot/main/config.example.js
+mv config.example.js showpilot-config/config.js
+nano showpilot-config/config.js   # change jwtSecret and showToken to random strings
+                                   # (`openssl rand -hex 32` generates a good random value)
 
-# Set up the compose file
-cp docker-compose.yml.example docker-compose.yml
-# Edit if you need to change the port mapping or paths
-nano docker-compose.yml
+# Download the compose file and edit if needed (default port is 3100)
+curl -O https://raw.githubusercontent.com/ShowPilotFPP/ShowPilot/main/docker-compose.yml.example
+mv docker-compose.yml.example docker-compose.yml
 
-# Build and start
+# Start it
 docker compose up -d
 
 # Watch the logs as it boots
@@ -380,7 +379,9 @@ Then open `http://<your-host>:3100/admin` and continue with [First-run setup](#f
 - The container runs as a non-root `node` user (UID 1000). If you bind-mount the data directory, make sure your host directory is writable by UID 1000 — `chown -R 1000:1000 showpilot-data` if needed.
 - The data volume holds the SQLite database (`showpilot.db`) and cover-art uploads (`covers/`). Back this up regularly.
 - For HTTPS, put the container behind your existing reverse proxy (Nginx Proxy Manager, Traefik, Caddy). HTTPS termination at the proxy is the supported pattern — no built-in TLS in the container.
-- Updating: `git pull && docker compose build --no-cache && docker compose up -d`. Schema migrations run automatically on container start.
+- Updating: `docker compose pull && docker compose up -d`. Schema migrations run automatically on container start.
+- Pin to a specific version by editing `image:` in `docker-compose.yml` from `:latest` to a specific tag like `:0.18.5`. See available tags at [ghcr.io/ShowPilotFPP/ShowPilot](https://github.com/ShowPilotFPP/ShowPilot/pkgs/container/showpilot).
+- Want to build the image yourself instead of pulling? See the alternative `build:` block in `docker-compose.yml.example`.
 
 ---
 
