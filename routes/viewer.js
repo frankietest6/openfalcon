@@ -56,14 +56,6 @@ function isPrivateIp(ip) {
   }
   return false;
 }
-function requestIsOnSameLan(req, fppHost) {
-  if (!fppHost) return false;
-  // FPP hostnames like "fpp.local" we can't easily classify — be safe and
-  // assume not-LAN for non-IP hostnames (proxy works either way).
-  if (!/^[\d.:]+$/.test(fppHost)) return false;
-  if (!isPrivateIp(fppHost)) return false; // FPP isn't on a private network somehow
-  return isPrivateIp(getClientIp(req));
-}
 
 function distanceMiles(lat1, lng1, lat2, lng2) {
   const R = 3958.7613;
@@ -440,24 +432,6 @@ router.get('/now-playing-audio', (req, res) => {
   const startedAtMs = np.started_at ? new Date(np.started_at.replace(' ', 'T') + 'Z').getTime() : null;
   const elapsedSec = startedAtMs ? Math.max(0, (Date.now() - startedAtMs) / 1000) : 0;
 
-  // Build audio daemon URLs if a plugin has registered an FPP host.
-  // The daemon runs on FPP itself (default port 8090) and serves audio
-  // directly + a WebSocket time-sync channel. Browser connects to it directly.
-  //
-  // BUT: only return these URLs when the request is from the SAME private
-  // network as FPP. Otherwise we'd send a public visitor a 192.168.x.x URL
-  // their browser can't reach — fetch hangs for 30+ seconds before failing
-  // over to the proxy. For public viewers, we omit the direct URL entirely
-  // so the client uses the OpenFalcon proxy (which IS publicly reachable).
-  const fppHost = cfg.plugin_fpp_host;
-  const audioPort = cfg.audio_daemon_port || 8090;
-  let directStreamUrl = null;
-  let wsSyncUrl = null;
-  if (fppHost && requestIsOnSameLan(req, fppHost)) {
-    directStreamUrl = `http://${fppHost}:${audioPort}/audio/${encodeURIComponent(seq.media_name)}`;
-    wsSyncUrl = `ws://${fppHost}:${audioPort}/sync`;
-  }
-
   res.json({
     playing: true,
     hasAudio: true,
@@ -471,13 +445,11 @@ router.get('/now-playing-audio', (req, res) => {
     // Timestamp-anchored sync — Web Audio API uses these for sample-precise scheduling
     trackStartedAtMs: startedAtMs,
     serverNowMs: Date.now(),
-    // Direct daemon URLs (Phase 2 — preferred for local listeners). Null if no daemon.
-    directStreamUrl,
-    wsSyncUrl,
-    // Proxy stream URL — relative path always works for same-origin requests
+    // Audio is served via the OpenFalcon proxy, which fetches bytes from
+    // FPP's built-in /api/file/Music/<name> endpoint. Same-origin path always
+    // works; the public URL is for cellular/external listeners hitting through
+    // the public domain.
     streamUrl: `/api/audio-stream/${encodeURIComponent(seq.name)}`,
-    // Public stream URL — absolute, via public domain. Used by client when local
-    // probes fail (e.g. cellular listeners). Empty string if not configured.
     publicStreamUrl: cfg.public_base_url
       ? `${String(cfg.public_base_url).replace(/\/+$/, '')}/api/audio-stream/${encodeURIComponent(seq.name)}`
       : '',

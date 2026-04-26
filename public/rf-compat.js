@@ -1152,48 +1152,30 @@
 
       stopAudio();
 
-      // ---- Pick best stream URL ----
-      // Strategy: race a local URL and a public URL in parallel, take the
-      // first that returns audio bytes successfully. Cache the winner for
-      // the rest of the session so subsequent track changes don't re-detect.
+      // ---- Pick stream URL ----
+      // Audio is served exclusively by the OpenFalcon proxy, which fetches
+      // bytes from FPP's built-in /api/file/Music/<n> endpoint. There's no
+      // separate "direct" path anymore — we previously had a Node.js audio
+      // daemon running on FPP that this client raced against the proxy, but
+      // it added complexity for a benefit that turned out to be imperceptible
+      // (the proxy adds a few ms over LAN, undetectable in practice).
       //
-      // Local URL = either the FPP audio daemon directly (best) OR the
-      //   OpenFalcon proxy on its own origin (next best — same network).
-      // Public URL = absolute URL via configured public domain — works on
-      //   cellular and gets edge-cached by Cloudflare.
-      const localUrls = [];
-      if (data.directStreamUrl) localUrls.push(data.directStreamUrl);
-      if (data.streamUrl) localUrls.push(window.location.origin + data.streamUrl);
-      const publicUrl = data.publicStreamUrl || '';
+      // We try the same-origin proxy URL first, fall back to the public URL
+      // (absolute, via configured public domain). This handles cases where
+      // the page was loaded from a cached HTML and the origin is briefly
+      // unreachable but the public domain is still up.
+      const urlsToTry = [];
+      if (data.streamUrl) urlsToTry.push(window.location.origin + data.streamUrl);
+      if (data.publicStreamUrl) urlsToTry.push(data.publicStreamUrl);
 
-      if (localUrls.length === 0 && !publicUrl) {
+      if (urlsToTry.length === 0) {
         statusEl.textContent = 'No audio source';
         return;
       }
 
       try {
         statusEl.textContent = 'Downloading…';
-
-        let arrayBuf = null;
-
-        // If we already raced and picked a strategy this session, just use it.
-        // _ofStreamMode values: 'local'  → use first localUrls entry
-        //                       'public' → use publicUrl
-        //                       null     → race them
-        if (window._ofStreamMode === 'local' && localUrls.length) {
-          arrayBuf = await tryFetchAudio(localUrls);
-        } else if (window._ofStreamMode === 'public' && publicUrl) {
-          arrayBuf = await tryFetchAudio([publicUrl]);
-        } else {
-          // First track of the session — race local vs public
-          const result = await raceAudioSources(localUrls, publicUrl);
-          arrayBuf = result.buffer;
-          window._ofStreamMode = result.winner;
-          if (result.winner) {
-            console.log('[OpenFalcon audio] Using', result.winner, 'streams for this session');
-          }
-        }
-
+        const arrayBuf = await tryFetchAudio(urlsToTry);
         if (!arrayBuf) throw new Error('All audio sources failed');
 
         statusEl.textContent = 'Decoding…';
@@ -1206,7 +1188,7 @@
     }
 
     // Fetch audio sequentially from a list of URLs, return the first successful
-    // arrayBuffer. Used after the session winner has been picked.
+    // arrayBuffer.
     async function tryFetchAudio(urls) {
       let lastErr = null;
       for (const url of urls) {
@@ -1220,70 +1202,6 @@
         }
       }
       throw lastErr || new Error('No URLs to try');
-    }
-
-    // Race local URLs vs public URL in parallel. The first to deliver audio
-    // bytes wins. Aborts the loser to free resources. Has a hard timeout so
-    // we don't hang forever if local IPs silently drop on cellular networks.
-    async function raceAudioSources(localUrls, publicUrl) {
-      const RACE_TIMEOUT_MS = 8000; // generous — first track may be a big file
-
-      const probes = [];
-
-      // Local probe: try first local URL (usually directStreamUrl, falls back
-      // to proxy via origin). Aborts after timeout.
-      if (localUrls.length) {
-        const ctrl = new AbortController();
-        const timer = setTimeout(() => ctrl.abort(), RACE_TIMEOUT_MS);
-        probes.push((async () => {
-          try {
-            const r = await fetch(localUrls[0], { signal: ctrl.signal });
-            if (!r.ok) throw new Error('HTTP ' + r.status);
-            const buf = await r.arrayBuffer();
-            clearTimeout(timer);
-            return { winner: 'local', buffer: buf, ctrl };
-          } catch (err) {
-            clearTimeout(timer);
-            throw err;
-          }
-        })());
-      }
-
-      // Public probe
-      if (publicUrl) {
-        const ctrl = new AbortController();
-        const timer = setTimeout(() => ctrl.abort(), RACE_TIMEOUT_MS);
-        probes.push((async () => {
-          try {
-            const r = await fetch(publicUrl, { signal: ctrl.signal });
-            if (!r.ok) throw new Error('HTTP ' + r.status);
-            const buf = await r.arrayBuffer();
-            clearTimeout(timer);
-            return { winner: 'public', buffer: buf, ctrl };
-          } catch (err) {
-            clearTimeout(timer);
-            throw err;
-          }
-        })());
-      }
-
-      if (probes.length === 0) {
-        throw new Error('No audio sources configured');
-      }
-
-      // First successful probe wins. If only one source is configured, this
-      // is just a regular fetch with timeout. If both, real race.
-      // Promise.any returns the first fulfilled promise; rejects only if ALL fail.
-      try {
-        const winner = await Promise.any(probes);
-        // Don't bother aborting losers — they'll abort on their own timeout
-        // and we already have what we need.
-        return winner;
-      } catch (aggErr) {
-        // All probes failed — surface the first error for diagnostics
-        const firstErr = aggErr.errors && aggErr.errors[0];
-        throw firstErr || new Error('All audio sources unreachable');
-      }
     }
 
     // ---- Schedule playback at sample-precise position ----
