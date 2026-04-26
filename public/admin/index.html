@@ -890,14 +890,22 @@
     }
     .of-tpl-locked-banner .lock-icon { font-size: 1.15rem; }
     .of-tpl-locked-banner .banner-text { flex: 1; }
-    /* When locked, gray out the editor panes so it's visibly read-only */
+    /* When locked, gray out the editor panes so it's visibly read-only.
+       Inputs and textareas inside the designer wrap are disabled. Buttons
+       are disabled UNLESS they carry the .of-tpl-bypass-lock class — used
+       for the Unlock button, tab-switch buttons, and template-management
+       buttons that should always work (Activate/Duplicate/Delete/+New). */
     .of-designer-locked input,
-    .of-designer-locked textarea,
-    .of-designer-locked button:not(.of-tpl-unlock-btn):not(.designer-tab):not(#tplActivateBtn):not(#tplDupBtn):not(#tplDeleteBtn):not(.secondary[onclick="newTemplate()"]):not([onclick="refreshPreview()"]) {
+    .of-designer-locked textarea {
       pointer-events: none;
       opacity: 0.55;
     }
-    .of-designer-locked .of-block-card { opacity: 0.7; }
+    .of-designer-locked button:not(.of-tpl-bypass-lock) {
+      pointer-events: none;
+      opacity: 0.55;
+    }
+    .of-designer-locked .of-block-card { opacity: 0.7; pointer-events: none; }
+    .of-designer-locked .of-block-card .of-block-card-header { pointer-events: auto; }
 
     /* Now playing inline strip (Dashboard) */
     .now-playing-card {
@@ -1035,7 +1043,7 @@
 
     <!-- Sticky header -->
     <header class="app-header">
-      <span class="app-brand">OpenFalcon <span class="app-version">v0.14.6</span></span>
+      <span class="app-brand">OpenFalcon <span class="app-version">v0.14.7</span></span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
       <span class="header-meta">
@@ -1341,21 +1349,21 @@
                 <input type="text" id="tplName" placeholder="Template name" style="flex: 1; margin: 0;" />
                 <span id="tplMeta" class="muted"></span>
                 <span id="tplDraftBadge" class="of-tpl-status of-tpl-status-saved">SAVED</span>
-                <button class="secondary" id="tplLockBtn" onclick="toggleTemplateLock()" title="Lock to prevent accidental edits">🔓 Lock</button>
+                <button class="secondary of-tpl-bypass-lock" id="tplLockBtn" onclick="toggleTemplateLock()" title="Lock to prevent accidental edits">🔓 Lock</button>
               </div>
 
               <!-- Locked banner — appears when the selected template is locked -->
               <div id="tplLockedBanner" class="of-tpl-locked-banner" style="display:none;">
                 <span class="lock-icon">🔒</span>
                 <span class="banner-text">This template is <strong>locked</strong>. Edits are blocked until you unlock it.</span>
-                <button class="of-tpl-unlock-btn" onclick="toggleTemplateLock()" style="margin: 0;">Unlock</button>
+                <button class="of-tpl-bypass-lock" onclick="toggleTemplateLock()" style="margin: 0;">Unlock</button>
               </div>
 
               <!-- Designer sub-tabs -->
               <div class="designer-tabs" style="display: flex; gap: 2px; border-bottom: 2px solid var(--border); margin-bottom: 0.75rem;">
-                <button class="designer-tab active" data-designer-tab="settings" onclick="switchDesignerTab('settings')">⚙️ Settings</button>
-                <button class="designer-tab" data-designer-tab="blocks" onclick="switchDesignerTab('blocks')">🧱 Blocks</button>
-                <button class="designer-tab" data-designer-tab="code" onclick="switchDesignerTab('code')">⌨️ Code</button>
+                <button class="designer-tab active of-tpl-bypass-lock" data-designer-tab="settings" onclick="switchDesignerTab('settings')">⚙️ Settings</button>
+                <button class="designer-tab of-tpl-bypass-lock" data-designer-tab="blocks" onclick="switchDesignerTab('blocks')">🧱 Blocks</button>
+                <button class="designer-tab of-tpl-bypass-lock" data-designer-tab="code" onclick="switchDesignerTab('code')">⌨️ Code</button>
                 <span style="flex: 1;"></span>
                 <button class="secondary" onclick="discardDraft()" id="tplDiscardBtn" style="display:none;">Discard Changes</button>
                 <button onclick="commitDraft()" id="tplCommitBtn" style="display:none;">Save Changes</button>
@@ -3327,8 +3335,12 @@
       if (selectedTplId !== null && selectedTplId !== id && hasDraft) {
         if (!confirm('You have unsaved changes on the current template. Switch and lose them?')) return;
       }
+      // Reset transient state up front so nothing leaks from the previously
+      // selected template (lock state, dirty flag, etc). The new template's
+      // values overwrite these once the API response comes back.
       selectedTplId = id;
       hasDraft = false;
+      applyLockUI(false);
       await loadDesignerMeta();
       const r = await api('/templates/' + id);
       if (!r.ok) return;
@@ -3409,9 +3421,15 @@
         alert(r.data?.error || 'Toggle lock failed');
         return;
       }
-      applyLockUI(!!r.data.locked);
-      // Refresh the template list so the badge updates
-      await loadTemplates();
+      const newLocked = !!r.data.locked;
+      applyLockUI(newLocked);
+      // Update the in-memory templates array so the sidebar badge reflects
+      // the new state without a full refetch. Doing a refetch + re-render
+      // here was causing a brief moment where the sidebar items were being
+      // recreated, and any click during that window could miss its handler.
+      const t = templates.find(x => x.id === selectedTplId);
+      if (t) t.locked = newLocked ? 1 : 0;
+      renderTemplateList();
     }
 
     async function activateTemplate() {

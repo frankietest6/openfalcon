@@ -511,9 +511,10 @@ router.get('/show-token', requireAdmin, (req, res) => {
 // ============================================================
 
 router.get('/templates', requireAdmin, (req, res) => {
-  // Summary list — don't ship the HTML body in the list endpoint (can be huge)
+  // Summary list — don't ship the HTML body in the list endpoint (can be huge).
+  // Include `locked` so the sidebar can show the 🔒 badge.
   const rows = db.prepare(`
-    SELECT id, name, is_active, is_builtin,
+    SELECT id, name, is_active, is_builtin, locked,
            LENGTH(html) AS html_length,
            created_at, updated_at
     FROM viewer_page_templates
