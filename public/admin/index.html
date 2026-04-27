@@ -1428,7 +1428,7 @@
 
     <!-- Sticky header -->
     <header class="app-header">
-      <span class="app-brand">ShowPilot <span class="app-version">v0.23.3</span></span>
+      <span class="app-brand">ShowPilot <span class="app-version">v0.23.4</span></span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
       <span class="header-meta">
@@ -3124,22 +3124,35 @@
         });
         return;
       }
-      // beforeinstallprompt hasn't fired. Show a helpful explanation.
+      // beforeinstallprompt hasn't fired. Show diagnostic info so we can
+      // tell exactly why. We dump the actual state values rather than
+      // guessing — saves a debugging round trip.
       const ua = navigator.userAgent;
       const isIOS = /iPhone|iPad|iPod/i.test(ua);
-      const isStandalone = window.matchMedia('(display-mode: standalone)').matches
-        || window.navigator.standalone === true;
-      let msg;
-      if (isStandalone) {
-        msg = 'ShowPilot Admin is already installed. Look for the icon on your home screen or app drawer.';
-      } else if (isIOS) {
-        msg = 'On iOS, install via the Share menu (square with up-arrow) → "Add to Home Screen".';
+      const standaloneMedia = window.matchMedia('(display-mode: standalone)').matches;
+      const navigatorStandalone = window.navigator.standalone === true;
+      const fullscreen = window.matchMedia('(display-mode: fullscreen)').matches;
+      const minimalUI = window.matchMedia('(display-mode: minimal-ui)').matches;
+      const swSupported = 'serviceWorker' in navigator;
+      const swRegistered = swSupported && navigator.serviceWorker.controller !== null;
+      let msg = 'PWA install diagnostic\n\n';
+      msg += 'beforeinstallprompt fired: NO\n';
+      msg += 'display-mode standalone: ' + standaloneMedia + '\n';
+      msg += 'navigator.standalone: ' + navigatorStandalone + '\n';
+      msg += 'display-mode fullscreen: ' + fullscreen + '\n';
+      msg += 'display-mode minimal-ui: ' + minimalUI + '\n';
+      msg += 'service worker supported: ' + swSupported + '\n';
+      msg += 'service worker active: ' + swRegistered + '\n';
+      msg += 'iOS device: ' + isIOS + '\n';
+      msg += '\n';
+      if (isIOS) {
+        msg += 'iOS Safari: install via Share menu → Add to Home Screen.';
+      } else if (standaloneMedia || navigatorStandalone) {
+        msg += 'Browser thinks page is in standalone mode. If you\'re seeing the regular browser UI, this is a bug. Try: clear site data, uninstall any old shortcut from home screen, restart browser.';
+      } else if (!swRegistered) {
+        msg += 'Service worker hasn\'t taken control yet. Try: hard refresh, or wait 30 seconds and tap again. Service workers can take a moment on first load.';
       } else {
-        msg = 'Your browser hasn\'t marked this page as installable yet. Possible reasons:\n\n' +
-              '• Already installed — check your home screen / app drawer\n' +
-              '• Browser caching an old service worker — try a hard refresh (Ctrl+Shift+R) or clear site data\n' +
-              '• Browser doesn\'t support PWA install (Firefox desktop, in-app browsers)\n' +
-              '• The "Enable Install as App for admin" toggle was just enabled — refresh the page';
+        msg += 'Browser hasn\'t determined the page is installable. Possible reasons:\n• Already installed (uninstall first)\n• Manifest icon failed to load (check DevTools → Application → Manifest)\n• Browser doesn\'t support PWA install (Firefox)\n• Recent install dismissed; Chrome throttles re-prompts for hours';
       }
       alert(msg);
     }
