@@ -172,28 +172,53 @@ function decodeStoredIcon(dataUrl) {
 
 // Serve the configured viewer icon as a real image URL. Mobile
 // browsers that wouldn't accept data: URLs in manifest icons see
-// this as a normal PNG response and accept it.
+// this as a normal image response and accept it.
+//
+// When the user has uploaded an icon (stored as data: URL in DB),
+// we decode and serve the bytes with the correct Content-Type.
+// When no icon is configured, fall back to the bundled SVG monogram —
+// served directly as image/svg+xml rather than redirecting to a
+// favicon.ico that may or may not exist. SVG is a valid format for
+// PWA manifest icons in modern browsers (Chrome 87+, Safari 17+).
+// PWA fallback icon — bundled SVG monogram, loaded once at startup.
+// Read from disk synchronously here (only happens at module load) so
+// the route handler doesn't pay per-request file I/O. Buffer is held
+// in memory; tiny (under 1KB).
+const fs = require('fs');
+const FALLBACK_ICON_SVG = (() => {
+  try {
+    return fs.readFileSync(path.join(__dirname, 'public/favicons/favicon-monogram.svg'));
+  } catch {
+    // If the file ever goes missing, return a tiny inline SVG so the
+    // route doesn't break. Better to serve a generic icon than 404.
+    return Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="6" fill="#1a3a5c"/><text x="16" y="22" text-anchor="middle" fill="#fff" font-family="sans-serif" font-size="18" font-weight="bold">SP</text></svg>');
+  }
+})();
+
 app.get('/viewer-icon', (req, res) => {
   const { getConfig } = require('./lib/db');
   const cfg = getConfig();
   const decoded = decodeStoredIcon(cfg.pwa_viewer_icon);
   if (!decoded) {
-    // Fall back to favicon when no icon is configured. Redirect
-    // rather than reading the favicon file ourselves — let Express
-    // static handler serve it normally.
-    return res.redirect('/favicon.ico');
+    // Serve the bundled SVG fallback directly. No redirect chain —
+    // Android's installability check is fussy about icon fetches and
+    // a redirect can sometimes confuse it.
+    res.setHeader('Content-Type', 'image/svg+xml');
+    res.setHeader('Cache-Control', 'public, max-age=3600');
+    return res.send(FALLBACK_ICON_SVG);
   }
   res.setHeader('Content-Type', decoded.mime || 'image/png');
   res.setHeader('Cache-Control', 'public, max-age=300');
   res.send(decoded.buffer);
 });
 
-// Admin icon route — currently always serves the favicon (admin
-// branding is fixed). Stub here so the manifest can reference a
-// stable path; if we ever let admins customize this, it's already
-// wired up.
+// Admin icon route — admin uses the bundled monogram SVG. Direct
+// serving avoids the redirect-to-favicon.ico chain that was failing
+// in v0.23.1 when no favicon.ico existed in the public root.
 app.get('/admin-icon', (req, res) => {
-  res.redirect('/favicon.ico');
+  res.setHeader('Content-Type', 'image/svg+xml');
+  res.setHeader('Cache-Control', 'public, max-age=3600');
+  res.send(FALLBACK_ICON_SVG);
 });
 
 app.get('/admin-manifest.json', (req, res) => {
@@ -206,9 +231,11 @@ app.get('/admin-manifest.json', (req, res) => {
   res.setHeader('Cache-Control', 'no-cache');
   // Three icon entries: 192, 512, and any. Android Chrome's
   // installability check specifically looks for a 192x192 AND
-  // a 512x512 icon. They can be the same source URL (browser
-  // downscales) but the manifest needs the entries declared
-  // separately. The "any" entry is for desktop / fallback.
+  // a 512x512 icon. We declare both sizes pointing at the same
+  // SVG (which scales perfectly) — browser uses the SVG for any
+  // requested size, scaled losslessly. Type must be image/svg+xml
+  // because the route serves SVG bytes; mismatched type causes
+  // Android to reject the icon and fail installability.
   res.json({
     name: 'ShowPilot Admin',
     short_name: 'ShowPilot',
@@ -218,10 +245,10 @@ app.get('/admin-manifest.json', (req, res) => {
     background_color: '#0a0a0a',
     theme_color: '#0a0a0a',
     icons: [
-      { src: '/admin-icon', sizes: '192x192', type: 'image/png', purpose: 'any' },
-      { src: '/admin-icon', sizes: '512x512', type: 'image/png', purpose: 'any' },
-      { src: '/admin-icon', sizes: '192x192', type: 'image/png', purpose: 'maskable' },
-      { src: '/admin-icon', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+      { src: '/admin-icon', sizes: '192x192', type: 'image/svg+xml', purpose: 'any' },
+      { src: '/admin-icon', sizes: '512x512', type: 'image/svg+xml', purpose: 'any' },
+      { src: '/admin-icon', sizes: '192x192', type: 'image/svg+xml', purpose: 'maskable' },
+      { src: '/admin-icon', sizes: '512x512', type: 'image/svg+xml', purpose: 'maskable' },
     ],
   });
 });
@@ -237,10 +264,17 @@ app.get('/viewer-manifest.json', (req, res) => {
     || 'Light Show';
   res.setHeader('Content-Type', 'application/manifest+json');
   res.setHeader('Cache-Control', 'no-cache');
-  // Same multi-size pattern as admin. The icon URL (/viewer-icon)
-  // either serves the user's uploaded PNG or redirects to favicon.
-  // Both 'any' and 'maskable' purposes — Android adaptive icons use
-  // the maskable variant; iOS and desktop use 'any'.
+  // Icon type must match what /viewer-icon actually serves.
+  // - User uploaded an icon (data: URL): we extract the MIME from
+  //   the data URL prefix; usually image/png, sometimes image/jpeg.
+  // - No upload: we serve the SVG fallback as image/svg+xml.
+  // Mismatch between manifest 'type' and actual Content-Type causes
+  // Android Chrome to reject the icon and fail installability.
+  let iconType = 'image/svg+xml';
+  if (cfg.pwa_viewer_icon && cfg.pwa_viewer_icon.startsWith('data:')) {
+    const m = cfg.pwa_viewer_icon.match(/^data:([^;]+);/);
+    if (m) iconType = m[1];
+  }
   res.json({
     name,
     short_name: name.length > 12 ? name.slice(0, 12) : name,
@@ -250,10 +284,10 @@ app.get('/viewer-manifest.json', (req, res) => {
     background_color: '#000000',
     theme_color: '#000000',
     icons: [
-      { src: '/viewer-icon', sizes: '192x192', type: 'image/png', purpose: 'any' },
-      { src: '/viewer-icon', sizes: '512x512', type: 'image/png', purpose: 'any' },
-      { src: '/viewer-icon', sizes: '192x192', type: 'image/png', purpose: 'maskable' },
-      { src: '/viewer-icon', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+      { src: '/viewer-icon', sizes: '192x192', type: iconType, purpose: 'any' },
+      { src: '/viewer-icon', sizes: '512x512', type: iconType, purpose: 'any' },
+      { src: '/viewer-icon', sizes: '192x192', type: iconType, purpose: 'maskable' },
+      { src: '/viewer-icon', sizes: '512x512', type: iconType, purpose: 'maskable' },
     ],
   });
 });
