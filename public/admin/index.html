@@ -286,6 +286,30 @@
     .mode-pill.jukebox { background: var(--rgb-blue); color: #fff; box-shadow: 0 0 12px rgba(59,130,246,0.3); }
     .mode-pill.off { background: var(--status-neutral); color: #fff; }
     .header-spacer { margin-left: auto; }
+    /* "Show" link in admin header — opens the viewer in a new tab.
+       Styled like the user button (subtle outline on dark background)
+       so admins recognize it as a peer action, not a primary action. */
+    .header-show-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.4rem 0.75rem;
+      font-size: 0.82rem;
+      color: var(--text);
+      text-decoration: none;
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .header-show-btn:hover {
+      background: var(--bg-tertiary);
+      border-color: var(--border-hover);
+    }
+    .header-show-btn-icon {
+      font-size: 0.95rem;
+      line-height: 1;
+    }
     .header-user {
       display: inline-flex;
       align-items: center;
@@ -815,6 +839,36 @@
       /* Brand bar gets tight on mobile */
       .app-brand { font-size: 0.95rem; }
       .app-version { font-size: 0.75rem; }
+      /* Header layout — let items wrap to a second line so the logout
+         button doesn't get pushed off-screen. The header's a flex
+         container; without flex-wrap, contents that don't fit just
+         overflow. We also tighten the gap/padding so the wrapped
+         layout doesn't take much extra vertical space. */
+      .app-header {
+        flex-wrap: wrap;
+        gap: 0.4rem;
+        padding: 0.6rem 0.75rem;
+      }
+      /* On wrap, push the meta info to a new line so the brand stays
+         on top with mode-pill and the action buttons stay together
+         on the bottom. The header-spacer (margin-left: auto) handles
+         the layout naturally once wrap is enabled. */
+      .header-meta {
+        font-size: 0.75rem;
+      }
+      .theme-select {
+        padding: 0.3rem 0.5rem;
+        font-size: 0.8rem;
+      }
+      .header-show-btn {
+        padding: 0.35rem 0.6rem;
+        font-size: 0.8rem;
+      }
+      .header-show-btn-label {
+        /* Hide the "Show" text, just leave the arrow icon to save space.
+           The icon is meaningful enough on its own as "open in new tab". */
+        display: none;
+      }
       /* Location map (Settings → Safeguards → GPS) — shrink height
          on mobile so it doesn't dominate the small screen */
       #locationMap {
@@ -1433,7 +1487,7 @@
 
     <!-- Sticky header -->
     <header class="app-header">
-      <span class="app-brand">ShowPilot <span class="app-version">v0.23.5</span></span>
+      <span class="app-brand">ShowPilot <span class="app-version">v0.23.6</span></span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
       <span class="header-meta">
@@ -1441,6 +1495,14 @@
         <span>·</span>
         <span><span id="headerPluginDot" class="plugin-dot offline"></span> <span id="headerPluginText">plugin</span></span>
       </span>
+      <!-- Open the public viewer page in a new tab. Useful when admin
+           wants to see the show as listeners experience it without
+           losing their admin context. New-tab so admin session stays
+           active in this tab. -->
+      <a href="/" target="_blank" rel="noopener" class="header-show-btn" title="Open viewer page in new tab">
+        <span class="header-show-btn-icon" aria-hidden="true">↗</span>
+        <span class="header-show-btn-label">Show</span>
+      </a>
       <select id="themeSelect" class="theme-select" onchange="applyTheme(this.value)" title="Choose theme">
         <option value="stage-dark">Stage · Dark</option>
         <option value="stage-light">Stage · Light</option>

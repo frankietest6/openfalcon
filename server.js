@@ -355,6 +355,27 @@ app.get('/', (req, res) => {
       WHERE played = 0 ORDER BY requested_at ASC
     `).all();
 
+    // Detect admin login so the viewer can render a small "Admin" pill
+    // that takes logged-in admins back to the admin dashboard. Failing
+    // verification (no cookie, expired, tampered) just leaves isAdmin
+    // false — the pill silently doesn't render. The check is cheap;
+    // we already require jwt for admin routes.
+    let isAdmin = false;
+    try {
+      const adminToken = req.cookies[config.sessionCookieName];
+      if (adminToken) {
+        const jwt = require('jsonwebtoken');
+        const payload = jwt.verify(adminToken, config.jwtSecret);
+        if (payload && payload.userId) {
+          const user = db.prepare('SELECT enabled FROM users WHERE id = ?').get(payload.userId);
+          if (user && user.enabled) isAdmin = true;
+        }
+      }
+    } catch {
+      // Invalid/expired token — leave isAdmin false. Don't clear the
+      // cookie here; that's the admin auth path's job.
+    }
+
     const html = renderTemplate(tpl, {
       config: cfg,
       sequences: sequencesBusted,
@@ -362,6 +383,7 @@ app.get('/', (req, res) => {
       queue,
       nowPlaying: nowPlaying.sequence_name,
       nextScheduled: nowPlaying.next_sequence_name,
+      isAdmin,
     });
 
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
