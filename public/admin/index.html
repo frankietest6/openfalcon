@@ -1487,7 +1487,7 @@
 
     <!-- Sticky header -->
     <header class="app-header">
-      <span class="app-brand">ShowPilot <span class="app-version">v0.23.10</span></span>
+      <span class="app-brand">ShowPilot <span class="app-version">v0.24.0</span></span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
       <span class="header-meta">
@@ -2213,6 +2213,30 @@
             <div class="row">
               <input type="checkbox" id="cfg_reset_votes_after_round" onchange="saveSetting('reset_votes_after_round', this.checked ? 1 : 0)" />
               <label for="cfg_reset_votes_after_round" style="margin: 0;">Auto-reset votes after winner plays</label>
+            </div>
+
+            <h3 style="margin-top: 1.25rem;">Tiebreak</h3>
+            <p class="muted" style="font-size: 0.85rem; margin: 0 0 0.5rem;">
+              When enabled, a strict tie at the top of the vote count
+              triggers a tiebreak round — viewers see an urgent banner
+              listing the tied songs and have a limited window to vote
+              again. If the timer expires without a clear winner,
+              all votes for that round are dumped and FPP plays its
+              scheduled next song.
+              <br /><br />
+              Disabled by default; without this, ties are broken by
+              "earliest first vote wins."
+            </p>
+            <div class="row">
+              <input type="checkbox" id="cfg_tiebreak_enabled" onchange="saveSetting('tiebreak_enabled', this.checked ? 1 : 0)" />
+              <label for="cfg_tiebreak_enabled" style="margin: 0;">Enable tiebreak round on a tie</label>
+            </div>
+            <div class="row" style="margin-top: 0.5rem; gap: 0.5rem; align-items: center;">
+              <label for="cfg_tiebreak_duration_sec" style="margin: 0;">Tiebreak duration (seconds):</label>
+              <input type="number" id="cfg_tiebreak_duration_sec" min="10" max="600" step="5"
+                     onchange="saveSetting('tiebreak_duration_sec', parseInt(this.value, 10) || 60)"
+                     style="max-width: 120px;" />
+              <span class="muted" style="font-size: 0.8rem;">— typical: 30–90s</span>
             </div>
           </div>
 
@@ -3125,6 +3149,8 @@
       updateViewerRequestLimitVisibility();
       setChk('cfg_prevent_multiple_votes', c.prevent_multiple_votes);
       setChk('cfg_reset_votes_after_round', c.reset_votes_after_round);
+      setChk('cfg_tiebreak_enabled', c.tiebreak_enabled);
+      setVal('cfg_tiebreak_duration_sec', c.tiebreak_duration_sec || 60);
       setChk('cfg_play_psa_enabled', c.play_psa_enabled);
       setVal('cfg_psa_frequency', c.psa_frequency);
       setChk('cfg_check_viewer_present', c.check_viewer_present);

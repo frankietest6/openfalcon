@@ -22,6 +22,10 @@ const {
   setNowPlaying,
   setNextScheduled,
   getHighestVotedSequence,
+  detectVoteTie,
+  getTiebreakLeader,
+  clearVotesForRound,
+  clearTiebreakState,
   popNextQueuedRequest,
   advanceVotingRound,
   db,
@@ -152,26 +156,130 @@ router.get('/state', (req, res) => {
   }
 
   if (cfg.viewer_control_mode === 'VOTING') {
-    const top = getHighestVotedSequence();
-    if (top) {
-      response.winningVote = {
-        sequence: top.sequence_name,
-        playlistIndex: top.sort_order,
-        votes: top.vote_count,
-      };
-      rememberHandoff(top.sequence_name, 'vote');
-      // NOTE: We used to delete votes and advance the round here.
-      // That was wrong — the plugin polls /state continuously, so a
-      // round would advance on the FIRST vote (whoever votes first
-      // "wins" because the next poll returns them as the winner and
-      // immediately resets the round). Subsequent votes never accumulated.
-      //
-      // Instead, the round now advances when the winning sequence
-      // ACTUALLY STARTS PLAYING — handled in /playing when the source
-      // of the now-playing report is 'vote' (set by consumeHandoff).
-      // That ensures votes accumulate during the entire current song,
-      // and the round only closes when the winner truly takes over.
+    // ---- Tiebreak resolution (v0.24.0+) ----
+    //
+    // Three tiebreak code paths possible here:
+    //   (1) Tiebreak ALREADY active and resolves now (clear leader emerged
+    //       from tiebreak votes) → return that as the winner.
+    //   (2) Tiebreak ALREADY active and timer expired → dump all votes for
+    //       the round, clear tiebreak state, return no winner. FPP plays
+    //       its scheduled next song.
+    //   (3) No tiebreak active and we'd normally pick a winner, but votes
+    //       are tied at the top → start tiebreak, return no winner this
+    //       poll, and emit a socket event so viewers can show the
+    //       tiebreak banner + cast tiebreak votes.
+    // If tiebreak feature is disabled (cfg.tiebreak_enabled === 0), we
+    // skip all this and use the original first-vote-wins behavior.
+    const tiebreakEnabled = cfg.tiebreak_enabled === 1;
+    let returnedWinner = false;
+
+    if (tiebreakEnabled && cfg.tiebreak_active === 1 && cfg.tiebreak_started_at) {
+      const candidates = (cfg.tiebreak_candidates || '')
+        .split(',').map(s => s.trim()).filter(Boolean);
+      const startedAt = new Date(cfg.tiebreak_started_at + 'Z').getTime();
+      const elapsedMs = Date.now() - startedAt;
+      const durationMs = (cfg.tiebreak_duration_sec || 60) * 1000;
+
+      if (elapsedMs >= durationMs) {
+        // Path 2: timer expired. Dump everything.
+        clearVotesForRound(cfg.current_voting_round);
+        clearTiebreakState();
+        // Advance the round — votes are gone, we're moving on. Next
+        // round starts fresh.
+        require('../lib/db').advanceVotingRound();
+        const io = req.app.get('io');
+        if (io) {
+          io.emit('voteReset');
+          io.emit('tiebreakFailed', {
+            candidates,
+            reason: 'timer expired without clear winner',
+          });
+        }
+        // Fall through — no winner. Plugin handles this by letting FPP
+        // play its scheduled next song.
+      } else {
+        // Path 1: tiebreak still active. Check for resolution.
+        const leader = getTiebreakLeader(cfg.current_voting_round, candidates);
+        if (leader) {
+          response.winningVote = {
+            sequence: leader.sequence_name,
+            playlistIndex: leader.sort_order,
+            votes: leader.vote_count,
+          };
+          rememberHandoff(leader.sequence_name, 'vote');
+          // Resolution will be finalized in /playing when this winner
+          // starts playing. Don't clear state yet — viewer banner still
+          // shows tiebreak in progress until song actually changes.
+          // (Same model as normal voting: round advances on song change.)
+          returnedWinner = true;
+        }
+        // else: still tied within candidates, no winner this poll
+      }
+    } else if (tiebreakEnabled) {
+      // Path 3: no tiebreak active. Check if we'd normally pick a winner
+      // but there's a tie at the top.
+      const tied = detectVoteTie(cfg.current_voting_round);
+      if (tied) {
+        // Start tiebreak. Persist state to config so it survives across
+        // /state polls, and emit a socket event so viewers update.
+        const startedAtIso = new Date().toISOString().slice(0, 19).replace('T', ' ');
+        db.prepare(`
+          UPDATE config
+          SET tiebreak_active = 1,
+              tiebreak_started_at = ?,
+              tiebreak_candidates = ?
+          WHERE id = 1
+        `).run(startedAtIso, tied.join(','));
+        const io = req.app.get('io');
+        if (io) {
+          // Look up display info for each candidate so viewers can render
+          // a rich tiebreak banner with names + images.
+          const placeholders = tied.map(() => '?').join(',');
+          const rows = db.prepare(`
+            SELECT name, display_name, artist, image_url
+            FROM sequences
+            WHERE name IN (${placeholders}) COLLATE NOCASE
+          `).all(...tied);
+          const candidateInfo = rows.map(r => ({
+            sequenceName: r.name,
+            displayName: r.display_name || r.name,
+            artist: r.artist || '',
+            imageUrl: r.image_url || '',
+          }));
+          io.emit('tiebreakStarted', {
+            candidates: candidateInfo,
+            durationSec: cfg.tiebreak_duration_sec || 60,
+            startedAtMs: Date.now(),
+          });
+        }
+        // No winner returned this poll. Plugin lets FPP play schedule.
+      } else {
+        // No tie. Fall back to normal winner selection.
+        const top = getHighestVotedSequence();
+        if (top) {
+          response.winningVote = {
+            sequence: top.sequence_name,
+            playlistIndex: top.sort_order,
+            votes: top.vote_count,
+          };
+          rememberHandoff(top.sequence_name, 'vote');
+          returnedWinner = true;
+        }
+      }
+    } else {
+      // Tiebreak feature disabled → original behavior (first-vote-wins).
+      const top = getHighestVotedSequence();
+      if (top) {
+        response.winningVote = {
+          sequence: top.sequence_name,
+          playlistIndex: top.sort_order,
+          votes: top.vote_count,
+        };
+        rememberHandoff(top.sequence_name, 'vote');
+        returnedWinner = true;
+      }
     }
+    // Round advances when the new song starts playing — handled in /playing.
   } else if (cfg.viewer_control_mode === 'JUKEBOX') {
     const next = popNextQueuedRequest();
     if (next) {
@@ -292,7 +400,13 @@ router.post('/playing', (req, res) => {
     console.log(`[playing] seq="${name}" source=${source} mode=${cfgForRound.viewer_control_mode} isChange=${isSequenceChange}`);
 
     const isVoting = cfgForRound.viewer_control_mode === 'VOTING';
-    if (isVoting && isSequenceChange && cfgForRound.reset_votes_after_round) {
+    // Suppress round-advance while a tiebreak is active. The tiebreak
+    // window holds the round open until the timer expires or a clear
+    // winner emerges; advancing here would dump candidate votes mid-tie
+    // and break the feature. (The /state endpoint handles tiebreak
+    // resolution and round-clearing in those cases.)
+    const tiebreakInProgress = cfgForRound.tiebreak_active === 1;
+    if (isVoting && isSequenceChange && cfgForRound.reset_votes_after_round && !tiebreakInProgress) {
       // Look up the winner display info ONLY if this song was a vote winner.
       // The toast notification fires only in that case — don't celebrate a
       // schedule-fill song as if it won.
@@ -310,7 +424,15 @@ router.post('/playing', (req, res) => {
         };
       }
 
-      db.prepare(`DELETE FROM votes WHERE round_id = ?`).run(cfgForRound.current_voting_round);
+      // Clear BOTH main-round and tiebreak votes for the closing round.
+      // (Tiebreak rows shouldn't normally exist when no tiebreak was
+      // active — but covering this guarantees no orphaned tiebreak rows
+      // accumulate if state ever gets out of sync.)
+      clearVotesForRound(cfgForRound.current_voting_round);
+      // If a tiebreak ran and resolved, the active flag was suppressing
+      // round-advance until song change. Now that the song actually
+      // changed, clear the tiebreak state too.
+      if (cfgForRound.tiebreak_active === 1) clearTiebreakState();
       advanceVotingRound();
       const io = req.app.get('io');
       if (io) {

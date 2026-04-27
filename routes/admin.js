@@ -159,6 +159,8 @@ router.put('/config', requireAdmin, (req, res) => {
     // Voting safeguards
     'prevent_multiple_votes',
     'reset_votes_after_round',
+    'tiebreak_enabled',
+    'tiebreak_duration_sec',
     // PSA
     'play_psa_enabled',
     'psa_frequency',

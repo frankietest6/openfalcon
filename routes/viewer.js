@@ -8,7 +8,7 @@ const express = require('express');
 const crypto = require('crypto');
 const router = express.Router();
 const config = require('../lib/config-loader');
-const { db, getConfig, getNowPlaying, getActiveViewerCount, getSequenceByName } = require('../lib/db');
+const { db, getConfig, getNowPlaying, getActiveViewerCount, getSequenceByName, castTiebreakVote } = require('../lib/db');
 const { bustCoverUrl } = require('../lib/cover-art');
 
 function ensureViewerToken(req, res) {
@@ -202,6 +202,15 @@ router.get('/state', (req, res) => {
     voteCounts,
     queue,
     requiresLocation: cfg.check_viewer_present === 1 && cfg.viewer_present_mode === 'GPS',
+    // Tiebreak state (v0.24.0+) — viewers use this to render the
+    // tiebreak banner when reconnecting mid-tiebreak (e.g. someone
+    // opened the page after the tiebreakStarted socket event already
+    // fired). Empty/false when no tiebreak active.
+    tiebreak: cfg.tiebreak_active === 1 ? {
+      candidates: (cfg.tiebreak_candidates || '').split(',').map(s => s.trim()).filter(Boolean),
+      startedAtIso: cfg.tiebreak_started_at,
+      durationSec: cfg.tiebreak_duration_sec || 60,
+    } : null,
   });
 });
 
@@ -281,6 +290,64 @@ router.post('/vote', (req, res) => {
       `SELECT sequence_name, COUNT(*) AS count FROM votes WHERE round_id = ? GROUP BY sequence_name`
     ).all(cfg.current_voting_round);
     io.emit('voteUpdate', { counts });
+  }
+
+  res.json({ ok: true });
+});
+
+// ============================================================
+// POST /api/tiebreak-vote
+// ============================================================
+// Casts a vote during an active tiebreak. Separate from /vote because
+// the validation is different (must be a candidate; main-round voters
+// allowed; uses tiebreak_votes table) and because the success response
+// triggers a different toast on the client. Body: { sequenceName }.
+router.post('/tiebreak-vote', (req, res) => {
+  const cfg = runSafeguards(req, res, 'VOTING');
+  if (!cfg) return;
+
+  if (cfg.tiebreak_active !== 1) {
+    return res.status(400).json({ error: 'No tiebreak in progress' });
+  }
+  const candidates = (cfg.tiebreak_candidates || '')
+    .split(',').map(s => s.trim()).filter(Boolean);
+  const { sequenceName } = req.body || {};
+  if (!sequenceName) return res.status(400).json({ error: 'Missing sequenceName' });
+  if (!candidates.includes(sequenceName)) {
+    return res.status(400).json({ error: 'That sequence is not a tiebreak candidate' });
+  }
+
+  const seq = getSequenceByName(sequenceName);
+  if (!seq) return res.status(404).json({ error: 'Unknown sequence' });
+
+  const token = ensureViewerToken(req, res);
+  const result = castTiebreakVote(token, sequenceName, cfg.current_voting_round, candidates);
+  if (result === 'duplicate') {
+    return res.status(409).json({ error: 'You have already voted in this tiebreak' });
+  }
+  if (result === 'invalid_candidate') {
+    return res.status(400).json({ error: 'Invalid tiebreak candidate' });
+  }
+
+  // Diagnostic logging — mirror the main /vote endpoint.
+  try {
+    const totalForRound = db.prepare(
+      `SELECT COUNT(*) AS n FROM tiebreak_votes WHERE round_id = ?`
+    ).get(cfg.current_voting_round).n;
+    console.log(`[tiebreak-vote] seq="${seq.name}" round=${cfg.current_voting_round} token=${(token||'').slice(0,8)} → tiebreak_round_total=${totalForRound}`);
+  } catch (e) {
+    console.warn('[tiebreak-vote] diagnostic logging failed:', e.message);
+  }
+
+  // Broadcast updated tiebreak vote tallies so connected viewers see
+  // the count tick up. Combined with main-round counts on the client
+  // side for the final score display.
+  const io = req.app.get('io');
+  if (io) {
+    const tbCounts = db.prepare(
+      `SELECT sequence_name, COUNT(*) AS count FROM tiebreak_votes WHERE round_id = ? GROUP BY sequence_name`
+    ).all(cfg.current_voting_round);
+    io.emit('tiebreakVoteUpdate', { counts: tbCounts });
   }
 
   res.json({ ok: true });

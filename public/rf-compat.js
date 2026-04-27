@@ -13,6 +13,15 @@
   const boot = window.__SHOWPILOT__ || {};
   let cachedLocation = null;
   let hasVoted = false;
+  // Tiebreak state — separate from main-round vote tracking. A user who
+  // voted in the main round can still cast a tiebreak vote; this flag
+  // tracks the latter independently.
+  let hasTiebreakVoted = false;
+  // Active tiebreak metadata. Populated by socket event 'tiebreakStarted'
+  // OR by /api/state when reconnecting mid-tiebreak (page reload during
+  // a tiebreak window). Null when no tiebreak is in progress.
+  let tiebreakState = null; // { candidates: [{sequenceName,...}], deadline_ms }
+  let tiebreakCountdownTimer = null;
 
   // ======= Error/success message helpers =======
   // RF templates include divs with these IDs; we show the appropriate one.
@@ -188,6 +197,21 @@
 
   // Globals exposed to template onclick handlers
   window.ShowPilotVote = async function (sequenceName) {
+    // If a tiebreak is in progress, route through the tiebreak path
+    // instead. Voting for a candidate goes via /api/tiebreak-vote;
+    // voting for a non-candidate is rejected with a clear message.
+    if (tiebreakState) {
+      const candidateNames = tiebreakState.candidates.map(c => c.sequenceName);
+      if (candidateNames.includes(sequenceName)) {
+        return window.ShowPilotTiebreakVote(sequenceName);
+      } else {
+        // Non-candidate vote during tiebreak. Show a clear message.
+        // Falls back to alreadyVoted message id since most templates
+        // have it, with text users will recognize as "voting blocked."
+        showMessage(MSG_IDS.alreadyVoted);
+        return;
+      }
+    }
     if (hasVoted) {
       showMessage(MSG_IDS.alreadyVoted);
       return;
@@ -278,6 +302,42 @@
       hasVoted = false;
     }
 
+    // --- Tiebreak state (v0.24.0+) ---
+    // If the server reports a tiebreak in progress and we don't already
+    // have one displayed, render the UI now. This handles page-reload
+    // mid-tiebreak — the socket event already fired before we connected,
+    // so we rely on /api/state to surface the active tiebreak. If the
+    // server says no tiebreak but we have one displayed (race or dump),
+    // clean up.
+    if (data.tiebreak && data.tiebreak.candidates && data.tiebreak.candidates.length >= 2) {
+      if (!tiebreakState) {
+        // Reconstruct the started-at moment from the ISO timestamp.
+        const startedAtMs = data.tiebreak.startedAtIso
+          ? new Date(data.tiebreak.startedAtIso + 'Z').getTime()
+          : Date.now();
+        // Look up display info for each candidate from the sequences list
+        const seqByName = {};
+        (data.sequences || []).forEach(s => { seqByName[s.name] = s; });
+        const candidates = data.tiebreak.candidates.map(name => {
+          const seq = seqByName[name] || {};
+          return {
+            sequenceName: name,
+            displayName: seq.display_name || name,
+            artist: seq.artist || '',
+            imageUrl: seq.image_url || '',
+          };
+        });
+        showTiebreakUI({
+          candidates,
+          startedAtMs,
+          durationSec: data.tiebreak.durationSec,
+        });
+      }
+    } else if (tiebreakState) {
+      // Server says no tiebreak but we have one. Clean up.
+      clearTiebreakUI();
+    }
+
     // --- NOW_PLAYING text ---
     const nowEl = document.querySelector('.now-playing-text');
     if (nowEl) {
@@ -358,6 +418,220 @@
   // Poll state every 3s for live updates (Socket.io provides instant updates too)
   setInterval(refreshState, 3000);
 
+  // ============================================================
+  // Tiebreak UI (v0.24.0+)
+  // ============================================================
+  // Renders a sticky banner at the top of the page when a tiebreak is
+  // active, plus visual emphasis on the tied candidates within the
+  // existing voting list. The banner shows a countdown timer and
+  // lists the tied songs as tap targets — tapping casts a tiebreak
+  // vote via /api/tiebreak-vote (rather than the regular /api/vote).
+  //
+  // Design intent: the existing voting list stays intact so users can
+  // see the score progression. We just overlay an urgent banner and
+  // mark the candidates with a visible badge so users know which two
+  // are eligible for the tiebreak vote.
+  function showTiebreakUI(data) {
+    if (!data || !Array.isArray(data.candidates) || data.candidates.length < 2) return;
+    const startedAtMs = data.startedAtMs || Date.now();
+    const durationSec = data.durationSec || 60;
+    tiebreakState = {
+      candidates: data.candidates,
+      deadlineMs: startedAtMs + (durationSec * 1000),
+    };
+    hasTiebreakVoted = false;
+    renderTiebreakBanner();
+    markTiebreakCandidatesInList();
+    startTiebreakCountdown();
+  }
+
+  function clearTiebreakUI() {
+    tiebreakState = null;
+    if (tiebreakCountdownTimer) {
+      clearInterval(tiebreakCountdownTimer);
+      tiebreakCountdownTimer = null;
+    }
+    const banner = document.getElementById('showpilot-tiebreak-banner');
+    if (banner) banner.remove();
+    document.querySelectorAll('.cell-vote-playlist').forEach(el => {
+      el.classList.remove('showpilot-tiebreak-candidate');
+      const badge = el.querySelector('.showpilot-tie-badge');
+      if (badge) badge.remove();
+    });
+  }
+
+  function renderTiebreakBanner() {
+    let banner = document.getElementById('showpilot-tiebreak-banner');
+    if (!banner) {
+      banner = document.createElement('div');
+      banner.id = 'showpilot-tiebreak-banner';
+      // Inline styles — keeps the banner self-contained even if a
+      // template's CSS doesn't include rules for it. Templates can
+      // restyle by setting CSS variables (--showpilot-tiebreak-bg etc.)
+      // or by overriding #showpilot-tiebreak-banner directly.
+      banner.style.cssText = [
+        'position: fixed',
+        'top: 0',
+        'left: 0',
+        'right: 0',
+        'z-index: 9997',
+        'padding: 14px 18px',
+        'background: var(--showpilot-tiebreak-bg, linear-gradient(135deg, #d63031, #6c0e0e))',
+        'color: var(--showpilot-tiebreak-text, #fff)',
+        'font-family: var(--showpilot-toast-font, system-ui, -apple-system, sans-serif)',
+        'box-shadow: 0 6px 18px rgba(0,0,0,0.5)',
+        'animation: showpilot-tb-shake 0.7s cubic-bezier(.36,.07,.19,.97) both',
+        'animation-iteration-count: 2',
+      ].join(';');
+      document.body.appendChild(banner);
+      // Add keyframes once
+      if (!document.getElementById('showpilot-tb-keyframes')) {
+        const styleEl = document.createElement('style');
+        styleEl.id = 'showpilot-tb-keyframes';
+        styleEl.textContent = `
+          @keyframes showpilot-tb-shake {
+            10%, 90% { transform: translate3d(-1px, 0, 0); }
+            20%, 80% { transform: translate3d(2px, 0, 0); }
+            30%, 50%, 70% { transform: translate3d(-3px, 0, 0); }
+            40%, 60% { transform: translate3d(3px, 0, 0); }
+          }
+          @keyframes showpilot-tb-pulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(255, 80, 80, 0.7); }
+            50% { box-shadow: 0 0 0 10px rgba(255, 80, 80, 0); }
+          }
+          .showpilot-tiebreak-candidate {
+            outline: 3px solid var(--showpilot-tiebreak-accent, #ff5050) !important;
+            outline-offset: -3px;
+            animation: showpilot-tb-pulse 1.5s infinite;
+          }
+          .showpilot-tie-badge {
+            display: inline-block;
+            background: var(--showpilot-tiebreak-bg, #d63031);
+            color: var(--showpilot-tiebreak-text, #fff);
+            font-size: 0.7rem;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 999px;
+            margin-left: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            vertical-align: middle;
+          }
+          #showpilot-tiebreak-banner button {
+            background: rgba(255,255,255,0.18);
+            border: 1px solid rgba(255,255,255,0.4);
+            color: inherit;
+            font-family: inherit;
+            font-size: 0.95rem;
+            font-weight: 600;
+            padding: 8px 14px;
+            margin: 4px;
+            border-radius: 8px;
+            cursor: pointer;
+          }
+          #showpilot-tiebreak-banner button:hover {
+            background: rgba(255,255,255,0.3);
+          }
+          #showpilot-tiebreak-banner button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+          }
+        `;
+        document.head.appendChild(styleEl);
+      }
+    }
+    if (!tiebreakState) return;
+    const candList = tiebreakState.candidates.map(c => `
+      <button data-tb-candidate="${escapeAttr(c.sequenceName)}" onclick="window.ShowPilotTiebreakVote('${escapeJsString(c.sequenceName)}')">
+        ${escapeHtml(c.displayName || c.sequenceName)}
+      </button>
+    `).join('');
+    banner.innerHTML = `
+      <div style="text-align:center;">
+        <div style="font-weight:800;font-size:1.05rem;letter-spacing:0.05em;text-transform:uppercase;">
+          ⚡ Tiebreak — Vote Now ⚡
+        </div>
+        <div style="font-size:0.85rem;opacity:0.9;margin-top:4px;">
+          Vote within <span id="showpilot-tb-countdown">--</span>s or all votes are dumped.
+        </div>
+        <div style="margin-top:10px;display:flex;flex-wrap:wrap;justify-content:center;">
+          ${candList}
+        </div>
+      </div>
+    `;
+  }
+
+  function markTiebreakCandidatesInList() {
+    if (!tiebreakState) return;
+    const candidateNames = tiebreakState.candidates.map(c => c.sequenceName);
+    document.querySelectorAll('.cell-vote-playlist').forEach(el => {
+      const seqName = el.getAttribute('data-seq');
+      if (seqName && candidateNames.includes(seqName)) {
+        el.classList.add('showpilot-tiebreak-candidate');
+        if (!el.querySelector('.showpilot-tie-badge')) {
+          const badge = document.createElement('span');
+          badge.className = 'showpilot-tie-badge';
+          badge.textContent = 'TIE';
+          el.appendChild(badge);
+        }
+      }
+    });
+  }
+
+  function startTiebreakCountdown() {
+    if (tiebreakCountdownTimer) clearInterval(tiebreakCountdownTimer);
+    const tick = () => {
+      if (!tiebreakState) return;
+      const remaining = Math.max(0, Math.ceil((tiebreakState.deadlineMs - Date.now()) / 1000));
+      const cdEl = document.getElementById('showpilot-tb-countdown');
+      if (cdEl) cdEl.textContent = String(remaining);
+      if (remaining <= 0) {
+        // Visual feedback that timer is up. Server will emit tiebreakFailed
+        // (or we'll get a state update with no tiebreak active) shortly,
+        // and that will clean us up.
+        if (cdEl) cdEl.textContent = 'time up';
+      }
+    };
+    tick();
+    tiebreakCountdownTimer = setInterval(tick, 250);
+  }
+
+  function showTiebreakFailedToast(data) {
+    // Use the existing winner-toast infrastructure with different content.
+    // We don't have the renderer's showWinnerToast helper exposed to us,
+    // so just log and rely on the "votes dumped" implication being clear
+    // when the tiebreak banner disappears. Templates can listen for the
+    // socket event themselves if they want a custom failure UI.
+    console.info('[ShowPilot] tiebreak expired — votes dumped:', data);
+  }
+
+  // Vote click during tiebreak — routes to the tiebreak endpoint instead
+  // of the main vote endpoint. Exposed globally so the banner buttons can
+  // call it directly. Returns nothing; uses showMessage for feedback.
+  window.ShowPilotTiebreakVote = async function(sequenceName) {
+    if (hasTiebreakVoted) {
+      showMessage(MSG_IDS.alreadyVoted);
+      return;
+    }
+    let body;
+    try { body = await buildBody({ sequenceName }); }
+    catch { return; }
+    const result = await postJson('/api/tiebreak-vote', body);
+    if (result.ok) {
+      hasTiebreakVoted = true;
+      showMessage(MSG_IDS.voteSuccess);
+    } else {
+      showMessage(mapErrorToId(result.data?.error));
+    }
+  };
+
+  function escapeAttr(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+  }
+  function escapeJsString(s) {
+    return String(s).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+  }
+
   // Initial heartbeat + immediate state refresh
   fetch('/api/heartbeat', { method: 'POST', credentials: 'include' }).catch(() => {});
   refreshState();
@@ -369,9 +643,25 @@
       socket.on('voteUpdate', () => refreshState());
       socket.on('queueUpdated', () => refreshState());
       socket.on('nowPlaying', () => refreshState());
-      socket.on('voteReset', () => { hasVoted = false; refreshState(); });
-      socket.on('sequencesReordered', () => refreshState()); // covers updated, sequences edited, etc.
+      socket.on('voteReset', () => {
+        hasVoted = false;
+        hasTiebreakVoted = false;
+        // Clear any tiebreak banner that's still on screen — round
+        // moved on (either resolution succeeded or timer expired).
+        clearTiebreakUI();
+        refreshState();
+      });
+      socket.on('sequencesReordered', () => refreshState());
       socket.on('sequencesSynced', () => refreshState());
+      // ---- Tiebreak events (v0.24.0+) ----
+      socket.on('tiebreakStarted', (data) => {
+        showTiebreakUI(data);
+      });
+      socket.on('tiebreakFailed', (data) => {
+        showTiebreakFailedToast(data);
+        clearTiebreakUI();
+      });
+      socket.on('tiebreakVoteUpdate', () => refreshState());
     }
   } catch {}
 
