@@ -1107,6 +1107,26 @@
     let integratedPlayedSec = 0;
     let lastIntegrationTime = 0;      // audioCtx.currentTime at last integration tick
 
+    // Crossfade correction state. We use jump-cut + crossfade rather than
+    // continuous rate adjustment because rate adjustment introduces
+    // accumulated math errors over time and produces audible pitch shifts.
+    // PulseMesh and other multi-room audio systems use this pattern.
+    //
+    // The plan: when drift exceeds threshold, fade out the current source
+    // over a short window while a new source starts at the corrected
+    // position with a fade-in. The crossfade is brief enough (~40ms) that
+    // listeners don't perceive it as a discontinuity, but the position
+    // snaps to truth instantly. No oscillation, no math errors.
+    //
+    // We hold the per-source GainNode so we can ramp ITS volume during
+    // the crossfade — the main `gainNode` at the destination handles
+    // user mute/volume and stays untouched by sync operations.
+    let currentSourceGain = null;
+    // Throttle: don't crossfade more than once per N seconds. Without
+    // this, jitter near the threshold would trigger correction on every
+    // tick, which would just produce an ugly chain of crossfades.
+    let lastCrossfadeAtCtx = 0;
+
     // ---- UI handlers ----
     // When the audio distance gate is enabled (admin opt-in), tapping the
     // launcher triggers a fresh location verification before the player
@@ -1597,14 +1617,26 @@
       const startWhen = audioCtx.currentTime + leadInSec;
       const startOffset = Math.max(0, positionSec + leadInSec);
 
+      // Each source gets its own gain node so the crossfade correction
+      // can ramp THIS source's volume independently. The main `gainNode`
+      // (connected to destination) handles user mute/volume; this source
+      // gain only handles sync transitions.
+      const srcGain = audioCtx.createGain();
+      srcGain.gain.value = 1;
+      srcGain.connect(gainNode);
+
       const src = audioCtx.createBufferSource();
       src.buffer = currentBuffer;
-      src.connect(gainNode);
+      src.connect(srcGain);
       src.start(startWhen, startOffset);
       src.onended = () => {
         if (currentSource === src) { currentSource = null; setPlayIcon(false); }
       };
       currentSource = src;
+      currentSourceGain = srcGain;
+      // Reset crossfade throttle on fresh schedule — we're a new track,
+      // any previous correction is irrelevant.
+      lastCrossfadeAtCtx = 0;
 
       // Capture the drift-measurement anchors. Together with audioCtx.
       // currentTime at any later moment, these let updateDriftDisplay()
@@ -1647,6 +1679,10 @@
         try { currentSource.disconnect(); } catch {}
         currentSource = null;
       }
+      if (currentSourceGain) {
+        try { currentSourceGain.disconnect(); } catch {}
+        currentSourceGain = null;
+      }
       // Clear drift anchors so updateDriftDisplay() bails until the
       // next track schedules new ones. Without this, the display would
       // keep drawing using stale anchors after stop().
@@ -1658,6 +1694,7 @@
       driftHistory.length = 0;
       integratedPlayedSec = 0;
       lastIntegrationTime = 0;
+      lastCrossfadeAtCtx = 0;
     }
 
     // If the audio gate fires during playback (e.g. user walked outside the
@@ -1724,57 +1761,136 @@
       const absMs = Math.abs(ms);
       driftEl.style.color = absMs < 100 ? '#4ade80' : (absMs < 500 ? '#fb923c' : '#ef4444');
 
-      // ---- Auto-sync via playback rate (continuous, smoothed) ----
-      // Push current drift onto rolling history and trim to size.
+      // ---- Auto-sync via crossfade jump-cut ----
+      //
+      // Replaces continuous playback rate adjustment, which had two
+      // problems: (1) accumulating math errors when rate * time
+      // integration was even slightly off, causing slow runaway drift,
+      // and (2) audible pitch shifts during corrections.
+      //
+      // The new approach: when smoothed drift exceeds the threshold,
+      // we kill the current source with a fast fade-out and start a
+      // brand-new source at the corrected position with a fade-in.
+      // The crossfade is short enough (~40ms) that listeners don't
+      // perceive it as a discontinuity, but the position snaps to
+      // truth instantly. Same pattern Sonos / multi-room audio uses.
+      //
+      // Throttling: we won't run another correction for several seconds
+      // after one fires. Without throttle, jitter near the threshold
+      // would chain crossfades back-to-back, sounding awful and never
+      // actually converging.
       driftHistory.push(drift);
       if (driftHistory.length > DRIFT_HISTORY_SIZE) driftHistory.shift();
-
-      // Wait until we have a full window before adjusting. Acting on
-      // partial history would be like reacting to a single sample —
-      // exactly what we're trying to avoid.
       if (driftHistory.length < DRIFT_HISTORY_SIZE) return;
 
-      // Average the window. Median would be more robust to outliers
-      // but average is good enough at this size and cheaper to compute.
       const avgDrift = driftHistory.reduce((a, b) => a + b, 0) / driftHistory.length;
       const avgDriftMs = Math.abs(avgDrift) * 1000;
 
-      // Hysteresis dead-zone: don't adjust if average drift is small.
-      // This kills the "constantly nudging by tiny amounts" warbling
-      // that would happen if we acted on every sub-50ms variation.
-      // Within the dead-zone we explicitly set rate to 1.0 so the
-      // audio plays at native rate while we're "good enough."
-      const DEAD_ZONE_MS = 30;
-      if (avgDriftMs < DEAD_ZONE_MS) {
-        if (lastAppliedRate !== 1.0) {
-          currentSource.playbackRate.value = 1.0;
-          lastAppliedRate = 1.0;
+      // Threshold tuning notes:
+      //   - 200ms is well above per-tick jitter (~50-100ms) so we don't
+      //     trigger on noise.
+      //   - 200ms is close to the perception threshold for music sync
+      //     vs. a separate audio source (i.e. listeners start to notice).
+      //   - PulseMesh logs we observed showed corrections happening at
+      //     ~700ms, suggesting their threshold may be even higher. We're
+      //     more aggressive — better tight sync, accepting more frequent
+      //     correction events.
+      const CORRECTION_THRESHOLD_MS = 200;
+      if (avgDriftMs < CORRECTION_THRESHOLD_MS) return;
+
+      // Throttle: don't crossfade more than once every N seconds. Gives
+      // the audio engine time to stabilize after the previous correction
+      // and prevents thrashing if jitter spans the threshold.
+      const CROSSFADE_THROTTLE_SEC = 5;
+      const nowCtx = audioCtx.currentTime;
+      if (lastCrossfadeAtCtx > 0 && (nowCtx - lastCrossfadeAtCtx) < CROSSFADE_THROTTLE_SEC) return;
+
+      // Compute the corrected file position — where we SHOULD be right
+      // now according to the server. The new source will start playing
+      // from this offset, with a small lead-in to allow scheduling.
+      const correctionLeadInSec = 0.04;  // ~40ms ahead of "now"
+      const newSourceStartWhen = nowCtx + correctionLeadInSec;
+      // expectedPosition is "where we should be now"; add the lead-in
+      // so when the new source actually starts playing, it's at the
+      // right spot for THAT moment.
+      const newSourceStartOffset = Math.max(0, expectedPosition + correctionLeadInSec);
+
+      // If the corrected position is past the end of the buffer, the
+      // track is essentially over. Don't crossfade — let the natural
+      // track-change flow handle it.
+      if (!currentBuffer || newSourceStartOffset >= currentBuffer.duration - 0.1) return;
+
+      try {
+        // Build the new source + gain (start at 0, ramp up).
+        const newGain = audioCtx.createGain();
+        newGain.gain.value = 0;
+        newGain.connect(gainNode);
+        const newSrc = audioCtx.createBufferSource();
+        newSrc.buffer = currentBuffer;
+        newSrc.connect(newGain);
+        // Schedule new source's gain ramp: 0 → 1 over the crossfade window
+        const fadeMs = 40;
+        const fadeSec = fadeMs / 1000;
+        newGain.gain.setValueAtTime(0, newSourceStartWhen);
+        newGain.gain.linearRampToValueAtTime(1, newSourceStartWhen + fadeSec);
+        // Start playback at corrected position
+        newSrc.start(newSourceStartWhen, newSourceStartOffset);
+        newSrc.onended = () => {
+          if (currentSource === newSrc) { currentSource = null; setPlayIcon(false); }
+        };
+
+        // Schedule the OLD source's gain ramp: 1 → 0 over the same window
+        const oldSrc = currentSource;
+        const oldGain = currentSourceGain;
+        if (oldGain) {
+          // Cancel any pending gain automation so our new ramp wins.
+          oldGain.gain.cancelScheduledValues(nowCtx);
+          oldGain.gain.setValueAtTime(oldGain.gain.value, newSourceStartWhen);
+          oldGain.gain.linearRampToValueAtTime(0, newSourceStartWhen + fadeSec);
         }
-        return;
-      }
+        // Stop+disconnect the old source AFTER the fade completes.
+        // Using setTimeout against wall time + a tiny safety margin
+        // since AudioContext doesn't expose a direct "run callback at
+        // audio time T" API. We accept ~5-10ms of slop here; the gain
+        // is 0 by then so listener can't hear anything anyway.
+        const cleanupDelayMs = (correctionLeadInSec + fadeSec) * 1000 + 20;
+        setTimeout(() => {
+          if (oldSrc) {
+            try { oldSrc.stop(); } catch {}
+            try { oldSrc.disconnect(); } catch {}
+          }
+          if (oldGain) {
+            try { oldGain.disconnect(); } catch {}
+          }
+        }, cleanupDelayMs);
 
-      // Compute corrective rate. We want to close the average drift over
-      // a long window so rate changes are gentle. 8 seconds was tuned
-      // by ear — long enough to stay subtle, short enough to actually
-      // converge meaningfully. Combined with the ±2% clamp below, a
-      // 200ms drift takes ~10s to close and a 500ms drift takes ~25s.
-      const CORRECTION_WINDOW_SEC = 8;
-      // If audio is AHEAD (drift > 0), we slow it down (rate < 1).
-      // If audio is BEHIND (drift < 0), we speed it up (rate > 1).
-      let rate = 1 - (avgDrift / CORRECTION_WINDOW_SEC);
-      // Tighter clamp than the original "converge once" version. Since
-      // we run continuously, we can be gentler; we'll catch up over
-      // multiple ticks. ±2% (~35 cents pitch shift) is below the
-      // perception threshold for most listeners on music. The original
-      // ±3% would sometimes be audible during big corrections.
-      if (rate < 0.98) rate = 0.98;
-      if (rate > 1.02) rate = 1.02;
+        // Update tracking pointers to the NEW source. Drift integration
+        // restarts from the corrected position. This is the "snap" — by
+        // the time the next drift tick fires, integratedPlayedSec is
+        // freshly anchored at expectedPosition (modulo lead-in), and
+        // drift will read near zero.
+        currentSource = newSrc;
+        currentSourceGain = newGain;
+        trackScheduledAtAudioCtx = newSourceStartWhen;
+        trackScheduledAtPositionSec = newSourceStartOffset;
+        integratedPlayedSec = newSourceStartOffset;
+        lastIntegrationTime = newSourceStartWhen;
+        lastCrossfadeAtCtx = nowCtx;
+        // Clear the drift history so the next averaging window is built
+        // fresh from post-correction samples (mixing pre- and post-
+        // correction drift values would average toward zero artificially
+        // and could suppress a follow-up correction that's actually needed).
+        driftHistory.length = 0;
 
-      // Only write if meaningfully different from last value. Avoids
-      // bombarding the audio engine with redundant assignments.
-      if (Math.abs(rate - lastAppliedRate) > 0.0005) {
-        currentSource.playbackRate.value = rate;
-        lastAppliedRate = rate;
+        // Diagnostic log — kept low-volume so it's not noisy in normal
+        // operation. Useful for verifying corrections are happening.
+        if (typeof console !== 'undefined' && console.info) {
+          console.info('[ShowPilot] sync correction:',
+            'drift was', Math.round(avgDriftMs), 'ms,',
+            'snapped to position', newSourceStartOffset.toFixed(3), 's');
+        }
+      } catch (err) {
+        console.warn('[ShowPilot] crossfade correction failed:', err);
       }
     }
 
