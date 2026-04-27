@@ -16,8 +16,14 @@
 
   // ======= Error/success message helpers =======
   // RF templates include divs with these IDs; we show the appropriate one.
+  // Vote-specific success goes to #voteSuccessful when present (so templates
+  // can word it differently from the jukebox "Successfully Added"); falls
+  // back to #requestSuccessful for templates that don't define a separate
+  // vote message. This keeps backward compatibility with all imported RF
+  // templates while letting newer templates differentiate the two flows.
   const MSG_IDS = {
     success: 'requestSuccessful',
+    voteSuccess: 'voteSuccessful',
     invalidLocation: 'invalidLocation',
     failed: 'requestFailed',
     alreadyQueued: 'requestPlaying',
@@ -26,13 +32,29 @@
   };
 
   function showMessage(id, durationMs) {
-    const el = document.getElementById(id);
+    let el = document.getElementById(id);
+    // Fallback: if a vote-specific success isn't defined in this template,
+    // use the generic success element. Some templates only have one.
+    if (!el && id === MSG_IDS.voteSuccess) {
+      el = document.getElementById(MSG_IDS.success);
+    }
     if (!el) {
-      console.warn('ShowPilot compat: no element with id', id);
+      console.warn('[ShowPilot] no element with id', id, '— message could not be displayed');
       return;
     }
     el.style.display = 'block';
-    setTimeout(() => { el.style.display = 'none'; }, durationMs || 3000);
+    // Tap-to-dismiss: most templates style these as floating overlays
+    // with cursor: pointer, but no actual click handler. Add one so
+    // users who tap the message can dismiss it immediately rather than
+    // wait for the timeout. Idempotent — set once per element.
+    if (!el.__showpilotDismissBound) {
+      el.addEventListener('click', () => { el.style.display = 'none'; });
+      el.__showpilotDismissBound = true;
+    }
+    if (el.__showpilotHideTimer) clearTimeout(el.__showpilotHideTimer);
+    el.__showpilotHideTimer = setTimeout(() => {
+      el.style.display = 'none';
+    }, durationMs || 3000);
   }
 
   function mapErrorToId(error) {
@@ -177,7 +199,10 @@
     const result = await postJson('/api/vote', body);
     if (result.ok) {
       hasVoted = true;
-      showMessage(MSG_IDS.success);
+      // Vote-specific success message. showMessage falls back to the
+      // generic #requestSuccessful element if #voteSuccessful isn't
+      // defined in the active template (backward compat for RF imports).
+      showMessage(MSG_IDS.voteSuccess);
     } else {
       showMessage(mapErrorToId(result.data?.error));
     }
