@@ -1292,7 +1292,7 @@
 
     <!-- Sticky header -->
     <header class="app-header">
-      <span class="app-brand">ShowPilot <span class="app-version">v0.22.1</span></span>
+      <span class="app-brand">ShowPilot <span class="app-version">v0.22.2</span></span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
       <span class="header-meta">
@@ -2019,38 +2019,7 @@
                their own top-level cards below the Settings card. Grouping
                them in one sub-tab makes audio tuning a single place to go. -->
           <div class="sub-tab-pane" data-subtab="audio">
-            <h3>Audio sync offset <span class="muted" style="font-size: 0.8rem; font-weight: normal;">(speaker latency calibration)</span></h3>
-            <p class="muted" style="font-size: 0.85rem; margin: 0 0 0.5rem;">
-              Calibrates phone audio timing to match your physical speakers.
-              Most FPP installs need a positive value here — typically 150–300ms.
-              Stand near your show and adjust this until phone audio is in sync
-              with what you hear from the speakers.
-              <br /><br />
-              <strong>Positive (e.g. 200):</strong> phone audio plays LATER. Use when phone is AHEAD of the show.
-              <br />
-              <strong>Negative:</strong> phone audio plays EARLIER. Use when phone is BEHIND the show.
-              <br />
-              <strong>Zero:</strong> phone aligns to FPP's reported playback position
-              (without compensating for the speaker hardware buffer).
-              <br /><br />
-              Why this exists: FPP reports its audio engine position via the
-              plugin, but there's a hardware audio buffer (~150–300ms) between
-              that position and what physically comes out of the speakers.
-              Phones receive the position fast and play immediately, so without
-              this offset they play that buffer-amount AHEAD of the speakers.
-              The exact value depends on your audio output device (analog jack,
-              HDMI, USB sound card, AVR with its own delay, etc.) and is set
-              once per show. Changes take effect on the next track or page refresh.
-            </p>
-            <div class="row" style="margin-top: 0.5rem; gap: 0.5rem; align-items: center;">
-              <label for="cfg_audio_sync_offset_ms" style="margin: 0;">Offset (milliseconds):</label>
-              <input type="number" id="cfg_audio_sync_offset_ms" step="10" min="-2000" max="2000"
-                     onchange="saveSetting('audio_sync_offset_ms', this.value)"
-                     style="max-width: 120px;" />
-              <span class="muted" style="font-size: 0.8rem;">— positive = audio plays later</span>
-            </div>
-
-            <h3 style="margin-top: 1.5rem;">Audio distance gate <span class="muted" style="font-size: 0.8rem; font-weight: normal;">(copyright safety)</span></h3>
+            <h3>Audio distance gate <span class="muted" style="font-size: 0.8rem; font-weight: normal;">(copyright safety)</span></h3>
             <p class="muted" style="font-size: 0.85rem; margin: 0 0 0.5rem;">
               When enabled, viewers must be physically near your show to listen.
               Tapping the 🎧 button forces a fresh GPS check at click time —
