@@ -180,6 +180,7 @@ router.put('/config', requireAdmin, (req, res) => {
     'public_base_url',
     'audio_gate_enabled',
     'audio_gate_radius_miles',
+    'audio_sync_offset_ms',
     'viewer_source_obfuscate',
   ];
   const updates = {};
