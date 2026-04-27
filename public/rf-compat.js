@@ -1074,21 +1074,24 @@
     let pendingStartTimeout = null;
 
     // ---- Auto-sync state ----
-    // We adjust playbackRate at the start of each track to converge on
-    // the server's expected position. Once drift is below a threshold,
-    // we lock back to rate=1.0 and stop adjusting. The audio clock then
-    // carries the rest of the track at native rate; for sub-5-minute
-    // tracks the natural drift after convergence is well under perceptible.
+    // We continuously adjust playbackRate based on smoothed drift. The
+    // server's audio_sync_offset_ms acts as a constant target (a "bias")
+    // and continuous resync corrects against it. Earlier versions tried
+    // a "converge once then lock at 1.0" approach but it failed when
+    // drift fluctuated mid-track (variable FPP audio output latency,
+    // network jitter affecting clock sync, etc.) — once we locked at
+    // 1.0, we wouldn't catch drift that developed later. This version
+    // never stops adjusting.
     //
-    // Resets to false in stopAudio() so every new track starts a fresh
-    // convergence cycle. Without that reset, a converged-then-restarted
-    // track wouldn't re-correct any drift introduced during the gap.
-    let syncConverged = false;
-    // Track the last rate we applied so we don't write the same value
-    // every poll (audio engines vary in how they handle rate.value
-    // assignments — some interpolate, some snap; setting only on change
-    // is the consistent path).
+    // Key smoothing: we keep a rolling window of recent drift samples
+    // and act on the AVERAGE, not the instantaneous reading. Without
+    // this, normal jitter (±50–100ms tick to tick) would cause the rate
+    // to constantly oscillate, producing audible warbling. Averaging
+    // 5 samples (~1.25s at 250ms tick) absorbs most jitter while still
+    // reacting to real trends.
     let lastAppliedRate = 1.0;
+    const driftHistory = [];          // ring of recent drift values in seconds
+    const DRIFT_HISTORY_SIZE = 5;     // ~1.25 seconds of samples
 
     // ---- UI handlers ----
     // When the audio distance gate is enabled (admin opt-in), tapping the
@@ -1568,11 +1571,6 @@
       // "audio arrived later" relative to wherever it would have been.
       const serverNow = Date.now() + clockOffset;
       const positionSec = (serverNow - trackStartedAtMs) / 1000 - (audioSyncOffsetMs / 1000);
-      // Diagnostic — temporary, remove after sync issue is resolved
-      console.log('[ShowPilot] scheduleStart',
-        'audioSyncOffsetMs=', audioSyncOffsetMs,
-        'positionSec=', positionSec.toFixed(3),
-        'trackStartedAtMs=', trackStartedAtMs);
 
       // If already past the end, skip — next sync will pick up new track
       if (positionSec >= currentBuffer.duration) {
@@ -1637,9 +1635,9 @@
       trackScheduledAtAudioCtx = 0;
       trackScheduledAtPositionSec = 0;
       trackScheduledOutputLatency = 0;
-      // Reset auto-sync state so the next track converges from scratch.
-      syncConverged = false;
+      // Reset auto-sync state so the next track starts fresh.
       lastAppliedRate = 1.0;
+      driftHistory.length = 0;
     }
 
     // If the audio gate fires during playback (e.g. user walked outside the
@@ -1697,46 +1695,55 @@
       const absMs = Math.abs(ms);
       driftEl.style.color = absMs < 100 ? '#4ade80' : (absMs < 500 ? '#fb923c' : '#ef4444');
 
-      // ---- Auto-sync via playback rate ----
-      // Once converged, we leave the audio at rate=1.0 and trust the
-      // audio clock for the rest of the track. The natural drift over
-      // a few minutes is well below perception.
-      if (syncConverged) return;
+      // ---- Auto-sync via playback rate (continuous, smoothed) ----
+      // Push current drift onto rolling history and trim to size.
+      driftHistory.push(drift);
+      if (driftHistory.length > DRIFT_HISTORY_SIZE) driftHistory.shift();
 
-      // Convergence threshold. Below this, we consider sync good enough
-      // and lock the rate to 1.0 for the rest of the track. 50ms is
-      // tighter than the perception threshold for music (~100ms) and
-      // gives some headroom for the rest of the track.
-      const CONVERGE_THRESHOLD_MS = 50;
-      if (absMs < CONVERGE_THRESHOLD_MS) {
+      // Wait until we have a full window before adjusting. Acting on
+      // partial history would be like reacting to a single sample —
+      // exactly what we're trying to avoid.
+      if (driftHistory.length < DRIFT_HISTORY_SIZE) return;
+
+      // Average the window. Median would be more robust to outliers
+      // but average is good enough at this size and cheaper to compute.
+      const avgDrift = driftHistory.reduce((a, b) => a + b, 0) / driftHistory.length;
+      const avgDriftMs = Math.abs(avgDrift) * 1000;
+
+      // Hysteresis dead-zone: don't adjust if average drift is small.
+      // This kills the "constantly nudging by tiny amounts" warbling
+      // that would happen if we acted on every sub-50ms variation.
+      // Within the dead-zone we explicitly set rate to 1.0 so the
+      // audio plays at native rate while we're "good enough."
+      const DEAD_ZONE_MS = 30;
+      if (avgDriftMs < DEAD_ZONE_MS) {
         if (lastAppliedRate !== 1.0) {
           currentSource.playbackRate.value = 1.0;
           lastAppliedRate = 1.0;
         }
-        syncConverged = true;
         return;
       }
 
-      // Compute a corrective rate that closes the gap over the next
-      // few seconds rather than instantly. Instant correction would
-      // require huge rate changes that are very audible. A 5-second
-      // correction window means a 500ms drift needs ~10% rate change,
-      // which we'll then clamp to ±3% — so large drifts close gradually
-      // (a 500ms drift takes ~17s to close at 3%, but it KEEPS moving
-      // toward zero the whole time, and we recompute every 250ms).
-      const CORRECTION_WINDOW_SEC = 5;
+      // Compute corrective rate. We want to close the average drift over
+      // a long window so rate changes are gentle. 8 seconds was tuned
+      // by ear — long enough to stay subtle, short enough to actually
+      // converge meaningfully. Combined with the ±2% clamp below, a
+      // 200ms drift takes ~10s to close and a 500ms drift takes ~25s.
+      const CORRECTION_WINDOW_SEC = 8;
       // If audio is AHEAD (drift > 0), we slow it down (rate < 1).
       // If audio is BEHIND (drift < 0), we speed it up (rate > 1).
-      let rate = 1 - (drift / CORRECTION_WINDOW_SEC);
-      // Clamp to a range that's small enough to keep pitch shift below
-      // the perception threshold for most listeners. ±3% (about 50 cents
-      // of pitch shift) is the upper bound where most people don't
-      // consciously notice the speed change on music.
-      if (rate < 0.97) rate = 0.97;
-      if (rate > 1.03) rate = 1.03;
+      let rate = 1 - (avgDrift / CORRECTION_WINDOW_SEC);
+      // Tighter clamp than the original "converge once" version. Since
+      // we run continuously, we can be gentler; we'll catch up over
+      // multiple ticks. ±2% (~35 cents pitch shift) is below the
+      // perception threshold for most listeners on music. The original
+      // ±3% would sometimes be audible during big corrections.
+      if (rate < 0.98) rate = 0.98;
+      if (rate > 1.02) rate = 1.02;
 
-      // Only write if changed (avoids redundant audio engine work).
-      if (Math.abs(rate - lastAppliedRate) > 0.001) {
+      // Only write if meaningfully different from last value. Avoids
+      // bombarding the audio engine with redundant assignments.
+      if (Math.abs(rate - lastAppliedRate) > 0.0005) {
         currentSource.playbackRate.value = rate;
         lastAppliedRate = rate;
       }
