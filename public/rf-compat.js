@@ -13,6 +13,12 @@
   const boot = window.__SHOWPILOT__ || {};
   let cachedLocation = null;
   let hasVoted = false;
+  // Last-known voting round id, refreshed on every /api/state response.
+  // When this changes (server advanced past our vote), we clear hasVoted
+  // so the user can vote in the new round. Backup mechanism for
+  // voteReset socket events that may be missed on mobile when the
+  // socket dies during backgrounding.
+  let lastKnownRoundId = null;
   // Tiebreak state — separate from main-round vote tracking. A user who
   // voted in the main round can still cast a tiebreak vote; this flag
   // tracks the latter independently.
@@ -40,16 +46,42 @@
     alreadyVoted: 'alreadyVoted',
   };
 
-  function showMessage(id, durationMs) {
+  function showMessage(id, durationMs, textOverride) {
     let el = document.getElementById(id);
+    let usedFallback = false;
     // Fallback: if a vote-specific success isn't defined in this template,
     // use the generic success element. Some templates only have one.
     if (!el && id === MSG_IDS.voteSuccess) {
       el = document.getElementById(MSG_IDS.success);
+      usedFallback = true;
     }
     if (!el) {
       console.warn('[ShowPilot] no element with id', id, '— message could not be displayed');
       return;
+    }
+    // If we fell back from voteSuccess to requestSuccess, override the
+    // text so the user doesn't see jukebox wording ("Successfully Added")
+    // for a vote action. We stash the original HTML the first time we
+    // override so the element returns to its original wording for
+    // subsequent jukebox successes (templates may use the same element
+    // for both, just changing wording per-action).
+    //
+    // Templates with their own #voteSuccessful div get whatever wording
+    // they put inside it; this only kicks in for templates that don't
+    // define one. textOverride lets callers pass custom wording too.
+    const desiredText = textOverride || (
+      (id === MSG_IDS.voteSuccess || (usedFallback && id === MSG_IDS.voteSuccess))
+        ? 'You\'ve Successfully Voted! 🗳️'
+        : null
+    );
+    if (desiredText) {
+      if (!el.__showpilotOriginalHtml) {
+        el.__showpilotOriginalHtml = el.innerHTML;
+      }
+      el.textContent = desiredText;
+    } else if (el.__showpilotOriginalHtml) {
+      // Restore original wording for non-vote uses of the same element
+      el.innerHTML = el.__showpilotOriginalHtml;
     }
     el.style.display = 'block';
     // Tap-to-dismiss: most templates style these as floating overlays
@@ -297,7 +329,23 @@
       });
     }
 
-    // --- Reset "already voted" gate when a new round begins ---
+    // --- Reset "already voted" gate when the round id changes ---
+    // Round-id check is the backup for voteReset socket events which
+    // mobile devices can miss when backgrounded. If the server has
+    // moved past our recorded round, our local "already voted" flag
+    // is stale and must clear.
+    if (typeof data.currentVotingRound === 'number') {
+      if (lastKnownRoundId !== null && data.currentVotingRound !== lastKnownRoundId) {
+        // Round advanced. Clear local vote state regardless of whether
+        // the new round has zero votes yet (someone else may have
+        // already voted before this client polled).
+        hasVoted = false;
+        hasTiebreakVoted = false;
+      }
+      lastKnownRoundId = data.currentVotingRound;
+    }
+    // Legacy fallback: if we have no round id (older server) but vote
+    // counts came back empty, the round was reset. Same effect.
     if (data.viewerControlMode === 'VOTING' && data.voteCounts && data.voteCounts.length === 0) {
       hasVoted = false;
     }
@@ -668,8 +716,26 @@
         clearTiebreakUI();
       });
       socket.on('tiebreakVoteUpdate', () => refreshState());
+      // On reconnect (after network blip or mobile background-suspend),
+      // resync state immediately. Otherwise we'd keep showing whatever
+      // round we had before disconnect, including a stale "already
+      // voted" gate. Socket.io fires 'connect' both on initial connect
+      // and on each reconnect, so this covers both.
+      socket.on('connect', () => refreshState());
     }
   } catch {}
+
+  // Mobile devices commonly suspend background tabs aggressively. When
+  // the user comes back to the page (visibilitychange to 'visible'),
+  // pull a fresh state so we don't continue working from stale data.
+  // Pairs with the socket reconnect handler above — covers the case
+  // where the socket reconnected silently in the background but the
+  // tab missed events while suspended.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      refreshState();
+    }
+  });
 
   // ============================================================
   // LISTEN ON PHONE — Web Audio API player with sample-precise sync

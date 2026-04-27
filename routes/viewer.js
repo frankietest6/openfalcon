@@ -202,6 +202,13 @@ router.get('/state', (req, res) => {
     voteCounts,
     queue,
     requiresLocation: cfg.check_viewer_present === 1 && cfg.viewer_present_mode === 'GPS',
+    // Current voting round id. Viewers track this so they can detect a
+    // round change (server advanced past their last vote) and clear
+    // their local hasVoted flag. This is the "last-write-wins" backup
+    // for the voteReset socket event, which can be missed when mobile
+    // devices background-suspend or briefly drop network. Without it,
+    // "You've already voted" persists across rounds until manual refresh.
+    currentVotingRound: cfg.current_voting_round,
     // Tiebreak state (v0.24.0+) — viewers use this to render the
     // tiebreak banner when reconnecting mid-tiebreak (e.g. someone
     // opened the page after the tiebreakStarted socket event already
