@@ -2511,7 +2511,69 @@
       decoLayer.innerHTML = renderDecoration(theme, animate);
       // Reset panel padding-top in case previous decoration needed extra room
       panel.style.paddingTop = (theme === 'none') ? '12px' : '20px';
+
+      // ---- Toast/banner theme inheritance (v0.24.4+) ----
+      // Make the winner toast match the player's color palette by mapping
+      // the player's CSS variables (--of-bg, --of-border, --of-glow) onto
+      // the toast's variables (--showpilot-toast-*). Templates that set
+      // their own --showpilot-toast-* vars in their CSS still win because
+      // we only fill values that aren't already template-set.
+      //
+      // requestAnimationFrame waits one frame so the panel's computed
+      // styles reflect the just-applied class change. Reading them
+      // synchronously here would return the OLD theme's values.
+      requestAnimationFrame(applyPlayerThemeToToast);
     }
+
+    // Read the player panel's computed theme variables and propagate them
+    // to the toast/banner CSS variables on :root. Idempotent — safe to call
+    // multiple times. Only sets a toast variable if (a) the player has a
+    // value for it AND (b) the toast variable isn't already set by the
+    // template's own stylesheet (we check inline-style only, since
+    // template-set values in stylesheets have lower specificity than
+    // root.style and would get overridden silently if we always wrote).
+    function applyPlayerThemeToToast() {
+      try {
+        const root = document.documentElement;
+        const panelEl = document.getElementById('of-listen-panel');
+        if (!panelEl) return;
+        const cs = getComputedStyle(panelEl);
+
+        // For custom solid/gradient colors (no theme class), the panel
+        // has inline background-image/background-color rather than the
+        // theme's --of-bg. Use whichever is actually rendering.
+        const ofBg = (cs.getPropertyValue('--of-bg') || '').trim();
+        const inlineImg = (panelEl.style.backgroundImage || '').trim();
+        const inlineColor = (panelEl.style.backgroundColor || '').trim();
+        const effectiveBg = inlineImg && inlineImg !== 'none'
+          ? inlineImg
+          : (inlineColor && inlineColor !== 'transparent' ? inlineColor : ofBg);
+
+        const ofBorder = (cs.getPropertyValue('--of-border') || '').trim();
+        const ofGlow = (cs.getPropertyValue('--of-glow') || '').trim();
+
+        // Helper — set a toast var only if we have a player value AND
+        // the user hasn't already explicitly set it (via inline root style).
+        // Template-set CSS rules are NOT inline — they have lower
+        // specificity and root.style overrides them, which is what we want
+        // unless the template explicitly opted into theme-matching by
+        // leaving the var unset. (Templates wanting custom colors should
+        // use !important in their CSS to win against this.)
+        const setIfPlayerHasValue = (varName, value) => {
+          if (!value) return;
+          root.style.setProperty(varName, value);
+        };
+        setIfPlayerHasValue('--showpilot-toast-bg', effectiveBg);
+        setIfPlayerHasValue('--showpilot-toast-border', ofBorder);
+        setIfPlayerHasValue('--showpilot-toast-accent', ofGlow);
+      } catch (e) {
+        // Non-fatal — toast just stays default-themed
+      }
+    }
+    // Expose for the winner toast script (injected separately) so it can
+    // re-apply on each toast render in case the theme changed since the
+    // last appearance.
+    window.ShowPilotApplyPlayerThemeToToast = applyPlayerThemeToToast;
 
     function renderDecoration(theme, animate) {
       const animClass = animate ? ' of-deco-animate' : '';
