@@ -732,6 +732,113 @@
     }
 
     /* ============================================================
+     * COMPREHENSIVE MOBILE STYLES (v0.23.2+)
+     * ============================================================
+     * The admin panel was originally designed desktop-first. This
+     * block makes it usable on phones (≤768px viewports). The high-
+     * impact fixes:
+     *   - Reduce horizontal padding on main/cards so content fits
+     *   - Wrap and shrink form rows so labels stack above inputs
+     *   - Allow tables to scroll horizontally inside their container
+     *   - Make input widths flex to fill available width
+     *   - Reduce header font sizes so they stop wrapping awkwardly
+     *   - Sub-tabs scroll horizontally like top-level tabs
+     *   - Modal dialogs go full-width minus a small margin
+     *
+     * The desktop design at >768px is unchanged. */
+    @media (max-width: 768px) {
+      /* Container padding — reclaim ~20px of horizontal space */
+      main {
+        padding: 1rem 0.75rem 2.5rem;
+      }
+      /* Cards likewise — keep some breathing room but tighter */
+      .card {
+        padding: 0.9rem;
+        margin-bottom: 0.9rem;
+        border-radius: 8px;
+      }
+      .card h2 { font-size: 1rem; }
+      .card h3 { font-size: 0.9rem; }
+      /* Top tab buttons — keep horizontal scroll but tighten padding */
+      .tab-nav { padding: 0 0.5rem; }
+      .tab-btn { padding: 0.7rem 0.9rem; font-size: 0.85rem; }
+      /* Sub-tabs (Settings inner tabs) - same horizontal-scroll treatment */
+      .sub-tabs {
+        overflow-x: auto;
+        flex-wrap: nowrap;
+        white-space: nowrap;
+        -webkit-overflow-scrolling: touch;
+      }
+      .sub-tab { white-space: nowrap; flex-shrink: 0; }
+      /* Form rows — stack vertically so labels and inputs each get
+         full width instead of squeezing side-by-side */
+      .row {
+        flex-wrap: wrap;
+        gap: 0.5rem;
+      }
+      /* Inputs inside .row that had explicit max-widths set inline
+         (e.g. style="max-width: 120px") would otherwise stay narrow.
+         Override to take available width on mobile. */
+      .row input[type="text"],
+      .row input[type="number"],
+      .row input[type="email"],
+      .row input[type="url"],
+      .row input[type="password"],
+      .row select {
+        max-width: 100% !important;
+        width: 100%;
+        min-width: 0;
+      }
+      /* Tables — wrap their parent in horizontal-scroll-as-needed.
+         We set the wrapper class via JS or just use overflow-x on
+         common ancestors. Most admin tables are inside .card; give
+         that wrapper the overflow. */
+      .card { overflow-x: auto; }
+      table {
+        min-width: 100%;
+        font-size: 0.85rem;
+      }
+      table th, table td {
+        padding: 0.4rem 0.5rem;
+      }
+      /* Buttons — make sure long button rows wrap rather than overflow */
+      button, button.secondary, button.danger, button.success {
+        font-size: 0.85rem;
+        padding: 0.5rem 0.85rem;
+      }
+      /* Modals — fill available width */
+      .modal-content,
+      [class*="modal"] > div {
+        max-width: calc(100vw - 1.5rem) !important;
+        margin: 0.75rem;
+      }
+      /* Brand bar gets tight on mobile */
+      .app-brand { font-size: 0.95rem; }
+      .app-version { font-size: 0.75rem; }
+      /* Location map (Settings → Safeguards → GPS) — shrink height
+         on mobile so it doesn't dominate the small screen */
+      #locationMap {
+        height: 200px !important;
+      }
+      /* PWA install button on admin — show full width on mobile */
+      #pwaInstallBtn {
+        width: 100%;
+        justify-content: center;
+      }
+    }
+
+    /* Extra-tight phones (≤480px) — small additional cleanup */
+    @media (max-width: 480px) {
+      main { padding: 0.75rem 0.5rem 2.5rem; }
+      .card { padding: 0.75rem; }
+      h1 { font-size: 1.15rem; }
+      h2 { font-size: 1rem; }
+      h3 { font-size: 0.9rem; }
+      .tab-btn { padding: 0.6rem 0.7rem; font-size: 0.8rem; }
+      .sub-tab { padding: 0.5rem 0.75rem; font-size: 0.8rem; }
+    }
+
+    /* ============================================================
      * BUTTONS
      * ============================================================ */
     button {
@@ -1321,7 +1428,7 @@
 
     <!-- Sticky header -->
     <header class="app-header">
-      <span class="app-brand">ShowPilot <span class="app-version">v0.23.1</span></span>
+      <span class="app-brand">ShowPilot <span class="app-version">v0.23.2</span></span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
       <span class="header-meta">
@@ -2094,17 +2201,16 @@
               <input type="checkbox" id="cfg_pwa_admin_enabled" onchange="saveSetting('pwa_admin_enabled', this.checked ? 1 : 0)" />
               <label for="cfg_pwa_admin_enabled" style="margin: 0;">Enable Install as App for admin</label>
             </div>
-            <div class="row" style="margin-top: 0.5rem;">
+            <div class="row" style="margin-top: 0.5rem; align-items: flex-start; flex-direction: column;">
               <button type="button" id="pwaInstallBtn" class="secondary"
-                      style="display: none; gap: 0.5rem; align-items: center;"
-                      onclick="if (window.__deferredInstallPrompt) { window.__deferredInstallPrompt.prompt(); window.__deferredInstallPrompt.userChoice.finally(function(){ window.__deferredInstallPrompt = null; document.getElementById('pwaInstallBtn').style.display='none'; }); }">
+                      style="display: inline-flex; gap: 0.5rem; align-items: center;"
+                      onclick="handleAdminInstallClick()">
                 <img src="/admin-icon" alt=""
                      style="width: 20px; height: 20px; border-radius: 4px; vertical-align: middle;" />
-                Install ShowPilot Admin
+                <span id="pwaInstallBtnLabel">Install ShowPilot Admin</span>
               </button>
-              <span class="muted" style="font-size: 0.8rem;">
-                Button appears once your browser is ready (open the admin
-                page once and interact with it; then refresh).
+              <span id="pwaInstallHint" class="muted" style="font-size: 0.8rem; margin-top: 0.4rem;">
+                Checking install eligibility…
               </span>
             </div>
 
@@ -2994,6 +3100,93 @@
       row.style.opacity = chk.checked ? '1' : '0.4';
       row.style.pointerEvents = chk.checked ? '' : 'none';
     }
+
+    // ---- Admin install button handling ----
+    // The button is always visible so users have a clear affordance,
+    // but its behavior depends on whether the browser has fired
+    // `beforeinstallprompt`. If it has, we fire the install dialog.
+    // If it hasn't, we explain what's going on (already installed,
+    // not eligible yet, browser unsupported, etc.).
+    //
+    // We update the hint text so users don't think the button is broken
+    // when their browser silently won't install. The most common reasons
+    // an install button doesn't work are: (1) already installed (Chrome
+    // suppresses re-prompts), (2) running on iOS Safari which has no
+    // automatic install API (must use Share menu), (3) the manifest or
+    // service worker has a transient registration error from a previous
+    // version. We hint at all of these.
+    function handleAdminInstallClick() {
+      if (window.__deferredInstallPrompt) {
+        window.__deferredInstallPrompt.prompt();
+        window.__deferredInstallPrompt.userChoice.finally(function() {
+          window.__deferredInstallPrompt = null;
+          updateAdminInstallButtonState();
+        });
+        return;
+      }
+      // beforeinstallprompt hasn't fired. Show a helpful explanation.
+      const ua = navigator.userAgent;
+      const isIOS = /iPhone|iPad|iPod/i.test(ua);
+      const isStandalone = window.matchMedia('(display-mode: standalone)').matches
+        || window.navigator.standalone === true;
+      let msg;
+      if (isStandalone) {
+        msg = 'ShowPilot Admin is already installed. Look for the icon on your home screen or app drawer.';
+      } else if (isIOS) {
+        msg = 'On iOS, install via the Share menu (square with up-arrow) → "Add to Home Screen".';
+      } else {
+        msg = 'Your browser hasn\'t marked this page as installable yet. Possible reasons:\n\n' +
+              '• Already installed — check your home screen / app drawer\n' +
+              '• Browser caching an old service worker — try a hard refresh (Ctrl+Shift+R) or clear site data\n' +
+              '• Browser doesn\'t support PWA install (Firefox desktop, in-app browsers)\n' +
+              '• The "Enable Install as App for admin" toggle was just enabled — refresh the page';
+      }
+      alert(msg);
+    }
+
+    function updateAdminInstallButtonState() {
+      const btn = document.getElementById('pwaInstallBtn');
+      const hint = document.getElementById('pwaInstallHint');
+      const label = document.getElementById('pwaInstallBtnLabel');
+      if (!btn || !hint || !label) return;
+      const isStandalone = window.matchMedia('(display-mode: standalone)').matches
+        || window.navigator.standalone === true;
+      const ua = navigator.userAgent;
+      const isIOS = /iPhone|iPad|iPod/i.test(ua);
+      if (isStandalone) {
+        btn.disabled = true;
+        label.textContent = 'Already installed';
+        hint.textContent = '✓ ShowPilot Admin is running as an installed app.';
+      } else if (window.__deferredInstallPrompt) {
+        btn.disabled = false;
+        label.textContent = 'Install ShowPilot Admin';
+        hint.textContent = 'Tap to install on this device.';
+      } else if (isIOS) {
+        btn.disabled = false;
+        label.textContent = 'How to install on iOS';
+        hint.textContent = 'iOS doesn\'t support install prompts — tap the button for instructions.';
+      } else {
+        btn.disabled = false;
+        label.textContent = 'Install ShowPilot Admin';
+        hint.textContent = 'Tap to check eligibility. If your browser supports PWA install, the prompt will appear.';
+      }
+    }
+
+    // Hook into the existing beforeinstallprompt event so the button
+    // updates state when the prompt becomes available. The /head script
+    // already sets window.__deferredInstallPrompt on the event; we just
+    // refresh the button display when it changes.
+    window.addEventListener('beforeinstallprompt', function() {
+      // Defer to the next tick so __deferredInstallPrompt is set first.
+      setTimeout(updateAdminInstallButtonState, 0);
+    });
+    window.addEventListener('appinstalled', function() {
+      window.__deferredInstallPrompt = null;
+      updateAdminInstallButtonState();
+    });
+    // Initial state on load — call after a short delay to let the
+    // browser fire beforeinstallprompt if it's going to.
+    setTimeout(updateAdminInstallButtonState, 1500);
 
     // ---- PWA icon upload + preview ----
     // Reads a user-selected file as base64 data URL and saves to config.
