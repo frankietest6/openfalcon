@@ -238,6 +238,13 @@ router.post('/playing', (req, res) => {
   const { sequence, seconds_played } = req.body || {};
   const name = (sequence || '').trim();
 
+  // Detect if this is a fresh sequence change (different from what was playing)
+  // BEFORE setNowPlaying overwrites it. We use this to advance the voting
+  // round on ANY song change in voting mode, not just when the winner plays.
+  // (See round-close logic below.)
+  const previouslyPlaying = db.prepare(`SELECT sequence_name FROM now_playing WHERE id = 1`).get();
+  const isSequenceChange = !!name && (!previouslyPlaying || previouslyPlaying.sequence_name !== name);
+
   // If the plugin reported a playback position, backdate started_at so the
   // audio player knows the song has been playing for that long. This handles
   // the "interrupt-then-resume" case: when FPP plays a request and then comes
@@ -268,49 +275,51 @@ router.post('/playing', (req, res) => {
       if (io) io.emit('queueUpdated');
     }
 
-    // ---- Voting round close (v0.23.7+) ----
-    // When a vote-winning sequence actually starts playing, THAT'S when
-    // the round officially ends. We delete the round's votes, advance
-    // the round counter, and emit a socket event so all connected viewers
-    // can show a winner notification.
+    // ---- Voting round close (v0.23.10+) ----
+    // The round advances whenever the playing sequence changes while in
+    // VOTING mode, regardless of whether the new song was the vote winner
+    // or a schedule fill. Earlier (v0.23.7) we only advanced when the
+    // winner ACTUALLY played, but that broke when the plugin couldn't
+    // queue the winner in time — the round never closed and viewers got
+    // "already voted" forever. The cleaner model: each song = one round.
     //
-    // This timing matters: deleting votes earlier (e.g. when the winner
-    // is QUEUED but not yet playing) would let viewers vote again before
-    // the supposedly-decided song actually started, which feels weird and
-    // creates a window where two consecutive winners could be picked.
-    // Waiting until playback starts means the round is over only when
-    // the listener actually hears the result.
-    if (source === 'vote') {
-      const cfg = getConfig();
-      // Look up the sequence's display name for the notification —
-      // viewers care about the human-readable name, not the file name.
-      const seqRow = db.prepare(`
-        SELECT display_name, name, image_url, artist
-        FROM sequences WHERE name = ? COLLATE NOCASE
-      `).get(name);
-      const winnerDisplay = (seqRow && seqRow.display_name) || name;
-      const winnerArtist = (seqRow && seqRow.artist) || '';
-      const winnerImage = (seqRow && seqRow.image_url) || '';
+    // If the winner did play, the toast still fires. If not, votes still
+    // reset so the next round starts fresh.
+    //
+    // Diagnostic logging: log every /playing report with mode + change
+    // detection + handoff source. Helps debug "round stuck" issues.
+    const cfgForRound = getConfig();
+    console.log(`[playing] seq="${name}" source=${source} mode=${cfgForRound.viewer_control_mode} isChange=${isSequenceChange}`);
 
-      if (cfg.reset_votes_after_round) {
-        db.prepare(`DELETE FROM votes WHERE round_id = ?`).run(cfg.current_voting_round);
-        advanceVotingRound();
-        const io = req.app.get('io');
-        if (io) {
-          // voteReset clears each viewer's local vote-state. Existing event,
-          // kept for backward compatibility.
-          io.emit('voteReset');
-          // votingRoundEnded delivers the winner info to all viewers so they
-          // can show a celebratory toast. Includes display name, artist,
-          // and image URL so the toast can be visually rich without an
-          // additional API call.
-          io.emit('votingRoundEnded', {
-            sequenceName: name,
-            displayName: winnerDisplay,
-            artist: winnerArtist,
-            imageUrl: winnerImage,
-          });
-        }
+    const isVoting = cfgForRound.viewer_control_mode === 'VOTING';
+    if (isVoting && isSequenceChange && cfgForRound.reset_votes_after_round) {
+      // Look up the winner display info ONLY if this song was a vote winner.
+      // The toast notification fires only in that case — don't celebrate a
+      // schedule-fill song as if it won.
+      let winnerInfo = null;
+      if (source === 'vote') {
+        const seqRow = db.prepare(`
+          SELECT display_name, name, image_url, artist
+          FROM sequences WHERE name = ? COLLATE NOCASE
+        `).get(name);
+        winnerInfo = {
+          sequenceName: name,
+          displayName: (seqRow && seqRow.display_name) || name,
+          artist: (seqRow && seqRow.artist) || '',
+          imageUrl: (seqRow && seqRow.image_url) || '',
+        };
+      }
+
+      db.prepare(`DELETE FROM votes WHERE round_id = ?`).run(cfgForRound.current_voting_round);
+      advanceVotingRound();
+      const io = req.app.get('io');
+      if (io) {
+        // voteReset clears each viewer's local vote-state. Always emitted
+        // so viewers can vote again in the new round.
+        io.emit('voteReset');
+        // votingRoundEnded only fires if this was a vote winner — drives
+        // the celebratory toast. Schedule-fill round closes are silent.
+        if (winnerInfo) io.emit('votingRoundEnded', winnerInfo);
       }
     }
 

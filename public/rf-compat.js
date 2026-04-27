@@ -252,12 +252,24 @@
     // --- Vote counts ---
     if (data.voteCounts) {
       // First clear all existing counts to 0 so a removed vote drops visibly
-      document.querySelectorAll('[data-seq-count]').forEach(el => {
+      const allCells = document.querySelectorAll('[data-seq-count]');
+      allCells.forEach(el => {
         el.textContent = '0';
       });
+      // Build a name → cell map by reading the actual attribute values
+      // back from the DOM. This avoids the CSS attribute-selector pitfall
+      // where names with quotes, brackets, or other special chars don't
+      // match — getAttribute returns the un-escaped value, so a direct
+      // string compare always works regardless of how the attribute was
+      // serialized in the HTML.
+      const cellByName = {};
+      allCells.forEach(el => {
+        const n = el.getAttribute('data-seq-count');
+        if (n) cellByName[n] = el;
+      });
       data.voteCounts.forEach(v => {
-        const el = document.querySelector(`[data-seq-count="${v.sequence_name}"]`);
-        if (el) el.textContent = v.count;
+        const el = cellByName[v.sequence_name];
+        if (el) el.textContent = String(v.count);
       });
     }
 
