@@ -1425,19 +1425,19 @@
       _showNotPlaying = notPlaying;
 
       if (notPlaying) {
-        // Stop any in-flight audio and tear down the audio context. The
-        // pill (minimized "still playing" indicator) also makes no sense
-        // in this state, so hide it.
-        try { stopAudio(); } catch {}
-        try { teardown(); } catch {}
-        if (panelMode === 'minimized') {
-          // Auto-promote minimized → open so the user actually sees the
-          // message. Otherwise they'd have a hidden pill saying "playing"
-          // when nothing is.
-          setMode('open');
-        }
+        // Hide the hidden minimized pill if it was visible — a "Playing"
+        // indicator while nothing is playing would be confusing.
         minimizedPill.style.display = 'none';
 
+        // Stop any in-flight audio so we're not pumping silence (or worse,
+        // stale buffer tails) through the speakers while showing "not
+        // playing." Don't tear down audioCtx — recreating it later requires
+        // a user gesture on iOS, which would break the resume-on-restart
+        // flow.
+        try { stopAudio(); } catch {}
+
+        // Hide the player content. notPlayingMsg has flex:1 so it takes
+        // the textCol's place. Close (×) stays visible.
         coverEl.style.display = 'none';
         if (textCol) textCol.style.display = 'none';
         playBtn.style.display = 'none';
@@ -1451,10 +1451,20 @@
         playBtn.style.display = '';
         muteBtn.style.display = '';
         minBtn.style.display = '';
-        // If the user has the panel open when the show resumes, kick a
-        // fresh sync so audio starts up without them having to tap play.
-        if (panelMode === 'open' && audioCtx) {
-          try { syncOnce(); } catch {}
+        // If the user has the panel open when the show resumes, get audio
+        // going. If audioCtx already exists (panel was opened during a
+        // prior playing window), a syncOnce() picks up the new track.
+        // If not (panel was opened in the not-playing state), we need a
+        // full startup() — but Web Audio init requires a user gesture on
+        // iOS, so this will only succeed if the user interacted recently.
+        // Acceptable: if startup fails silently, the panel still shows the
+        // (now-empty) controls and they can tap play to retry.
+        if (panelMode === 'open') {
+          if (audioCtx) {
+            try { syncOnce(); } catch {}
+          } else {
+            try { startup(); } catch {}
+          }
         }
       }
     }
@@ -1727,7 +1737,12 @@
         // Force reflow then transition in
         void panel.offsetHeight;
         panel.style.transform = 'translateY(0)';
-        if (!audioCtx) startup();
+        // Skip audio init when the show isn't playing — there's nothing
+        // to sync to, and starting audio + running the gate check would
+        // cause syncOnce() to flip the gate latch and immediately hide
+        // the panel we just opened. The applyShowNotPlaying transition
+        // back to false will call startup() when the show resumes.
+        if (!audioCtx && !_showNotPlaying) startup();
       } else if (mode === 'minimized') {
         panel.style.transform = 'translateY(100%)';
         setTimeout(() => { panel.style.display = 'none'; }, 250);
