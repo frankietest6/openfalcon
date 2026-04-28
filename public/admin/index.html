@@ -1591,7 +1591,7 @@
 
     <!-- Sticky header -->
     <header class="app-header">
-      <span class="app-brand">ShowPilot <span class="app-version">v0.25.3</span></span>
+      <span class="app-brand">ShowPilot <span class="app-version">v0.25.4</span></span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
       <span class="header-meta">
@@ -2528,6 +2528,45 @@
               <label for="cfg_viewer_source_obfuscate" style="margin: 0;">Enable view-source deterrent on viewer page</label>
             </div>
           </div>
+
+          <!-- BACKUP & RESTORE — full instance backup including DB, config.js, optional cover art -->
+          <div class="sub-tab-pane" data-subtab="backup">
+            <h3>Export configuration</h3>
+            <p class="muted" style="font-size: 0.85rem; margin: 0 0 0.75rem;">
+              Downloads a single JSON file containing your settings, sequences,
+              templates, users, and the secrets needed to migrate to another
+              ShowPilot instance. Useful for backups before major changes,
+              or for moving to a new server.
+            </p>
+            <div style="display: flex; flex-direction: column; gap: 0.4rem; margin-bottom: 0.75rem;">
+              <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem; margin: 0; cursor: pointer;">
+                <input type="checkbox" id="exportIncludeCoverArt" style="width: auto; margin: 0;" />
+                <span>Include cover-art images</span>
+              </label>
+              <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem; margin: 0; cursor: pointer;"
+                     title="Includes last_played_at and play counters per sequence. Useful when migrating servers and you want to preserve play history.">
+                <input type="checkbox" id="exportIncludeStats" style="width: auto; margin: 0;" />
+                <span>Include play stats</span>
+              </label>
+            </div>
+            <button onclick="downloadBackup()">Download backup</button>
+            <div id="exportStatus" class="muted" style="margin-top: 0.75rem; font-size: 0.85rem;"></div>
+
+            <h3 style="margin-top: 2rem;">Restore from backup</h3>
+            <p class="muted" style="font-size: 0.85rem; margin: 0 0 0.75rem;">
+              Upload a previously-exported backup. You'll see a comparison of what's
+              in the backup vs your current data, and pick what to do per section
+              (replace, merge, or skip). Restoring secrets will end all current
+              admin sessions and trigger a server restart.
+            </p>
+            <input type="file" id="restoreFileInput" accept="application/json,.json"
+                   class="sp-file-input"
+                   onchange="onRestoreFileSelected(event)" />
+            <div id="restoreStatus" class="muted" style="margin-top: 0.5rem; font-size: 0.85rem;"></div>
+
+            <!-- The inspect/policies UI gets injected here -->
+            <div id="restorePoliciesArea" style="display: none; margin-top: 1rem;"></div>
+          </div>
         </div>
 
         <div class="card">
@@ -2550,44 +2589,8 @@
           </div>
         </div>
 
-        <!-- BACKUP & RESTORE — full instance backup including DB, config.js, optional cover art -->
-        <div class="sub-tab-pane" data-subtab="backup">
-          <h3>Export configuration</h3>
-          <p class="muted" style="font-size: 0.85rem; margin: 0 0 0.75rem;">
-            Downloads a single JSON file containing your settings, sequences,
-            templates, users, and the secrets needed to migrate to another
-            ShowPilot instance. Useful for backups before major changes,
-            or for moving to a new server.
-          </p>
-          <div style="display: flex; flex-direction: column; gap: 0.4rem; margin-bottom: 0.75rem;">
-            <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem; margin: 0; cursor: pointer;">
-              <input type="checkbox" id="exportIncludeCoverArt" style="width: auto; margin: 0;" />
-              <span>Include cover-art images</span>
-            </label>
-            <label style="display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem; margin: 0; cursor: pointer;"
-                   title="Includes last_played_at and play counters per sequence. Useful when migrating servers and you want to preserve play history.">
-              <input type="checkbox" id="exportIncludeStats" style="width: auto; margin: 0;" />
-              <span>Include play stats</span>
-            </label>
-          </div>
-          <button onclick="downloadBackup()">Download backup</button>
-          <div id="exportStatus" class="muted" style="margin-top: 0.75rem; font-size: 0.85rem;"></div>
-
-          <h3 style="margin-top: 2rem;">Restore from backup</h3>
-          <p class="muted" style="font-size: 0.85rem; margin: 0 0 0.75rem;">
-            Upload a previously-exported backup. You'll see a comparison of what's
-            in the backup vs your current data, and pick what to do per section
-            (replace, merge, or skip). Restoring secrets will end all current
-            admin sessions and trigger a server restart.
-          </p>
-          <input type="file" id="restoreFileInput" accept="application/json,.json"
-                 class="sp-file-input"
-                 onchange="onRestoreFileSelected(event)" />
-          <div id="restoreStatus" class="muted" style="margin-top: 0.5rem; font-size: 0.85rem;"></div>
-
-          <!-- The inspect/policies UI gets injected here -->
-          <div id="restorePoliciesArea" style="display: none; margin-top: 1rem;"></div>
-        </div>
+        <!-- BACKUP & RESTORE pane is inside the Settings card above
+             (right before the External Audio Access card). -->
       </div>
 
       <!-- ============================================================

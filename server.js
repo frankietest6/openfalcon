@@ -67,6 +67,28 @@ app.use((req, res, next) => {
   next();
 });
 
+// Backup & restore API (v0.25.0+) — must be mounted BEFORE the global
+// express.json() parser below, because backup files (with cover art)
+// can run 5-50 MB and the default 1MB limit would reject them with an
+// HTML 413 response. The backup router declares its own parser with a
+// 100MB limit on its endpoints. Mounting here means we hit that parser
+// first; the global parser never sees these requests.
+//
+// Why isn't the global limit just bigger? Because everywhere else in
+// the app a 1MB request is comfortably above any legitimate use, and
+// keeping that ceiling is a useful defense against accidental or
+// adversarial blob uploads.
+const backupRouter = require('./routes/backup');
+const adminRouter = require('./routes/admin');
+app.use('/api/admin/backup', adminRouter.requireAdmin, backupRouter);
+const express2 = require('express');
+app.get('/api/setup/first-boot-status', backupRouter.firstBootStatusHandler);
+app.post(
+  '/api/setup/restore-from-backup',
+  express2.json({ limit: '100mb' }),
+  backupRouter.restoreFirstBootHandler
+);
+
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
@@ -89,23 +111,10 @@ app.use((req, res, next) => {
 // FPP plugin endpoints — mounted at /api/plugin for the ShowPilot plugin
 app.use('/api/plugin', require('./routes/plugin'));
 
-// Admin API (mount BEFORE /api/viewer to avoid prefix collisions)
-const adminRouter = require('./routes/admin');
+// Admin API (mount BEFORE /api/viewer to avoid prefix collisions).
+// The backup router was already mounted above the global json parser —
+// see the comment up there for why the order matters.
 app.use('/api/admin', adminRouter);
-
-// Backup & restore API (v0.25.0+). The export/inspect/restore endpoints
-// require admin auth. The first-boot status + first-boot restore are
-// unauthenticated but gated by lib/backup.isFirstBoot() — they only
-// work when the install is in its initial admin/admin state.
-const backupRouter = require('./routes/backup');
-app.use('/api/admin/backup', adminRouter.requireAdmin, backupRouter);
-const express2 = require('express');
-app.get('/api/setup/first-boot-status', backupRouter.firstBootStatusHandler);
-app.post(
-  '/api/setup/restore-from-backup',
-  express2.json({ limit: '100mb' }),
-  backupRouter.restoreFirstBootHandler
-);
 
 // Public viewer API
 app.use('/api', require('./routes/viewer'));
