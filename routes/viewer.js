@@ -482,6 +482,27 @@ router.get('/visual-config', (req, res) => {
       }
     }
   }
+  // showNotPlaying is a separate, NON-sticky signal. The audio gate latches
+  // on refresh (see applyAudioGateState) because gate state implies "you
+  // can't listen here at all" — but show-not-playing should toggle freely
+  // as FPP starts/stops between songs without forcing viewers to refresh.
+  // Stale heartbeat = FPP isn't actively reporting a sequence right now.
+  // Threshold of 10s gives comfortable margin over the plugin's ~1Hz report
+  // rate without lingering after the show stops.
+  let showNotPlaying = false;
+  const np = getNowPlaying();
+  if (!np || !np.sequence_name) {
+    showNotPlaying = true;
+  } else {
+    // SQLite CURRENT_TIMESTAMP is UTC. last_updated is stored as 'YYYY-MM-DD HH:MM:SS'
+    // (no TZ suffix). Adding 'Z' makes Date.parse treat it as UTC, matching how
+    // it was written.
+    const lastMs = Date.parse(np.last_updated + 'Z');
+    if (!isFinite(lastMs) || (Date.now() - lastMs) > 10_000) {
+      showNotPlaying = true;
+    }
+  }
+
   res.json({
     pageSnowEnabled: cfg.page_snow_enabled === 1,
     playerDecoration: cfg.player_decoration || 'none',
@@ -489,6 +510,7 @@ router.get('/visual-config', (req, res) => {
     playerCustomColor: cfg.player_custom_color || '',
     audioGateBlocked,
     audioGateReason,
+    showNotPlaying,
   });
 });
 
