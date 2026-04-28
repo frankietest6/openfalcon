@@ -1591,7 +1591,7 @@
 
     <!-- Sticky header -->
     <header class="app-header">
-      <span class="app-brand">ShowPilot <span class="app-version">v0.27.1</span></span>
+      <span class="app-brand">ShowPilot <span class="app-version">v0.27.2</span></span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
       <span class="header-meta">
@@ -3587,7 +3587,17 @@
     }
 
     async function api(path, opts = {}) {
-      const res = await fetch('/api/admin' + path, { credentials: 'include', ...opts });
+      // If a body is being sent, default Content-Type to application/json
+      // unless the caller already set one (multipart/FormData callers must
+      // override). Without this, express.json() refuses to parse the body
+      // and req.body is empty — which silently broke PUT /me/theme by
+      // making the server see theme=undefined and clear the preference.
+      const headers = { ...(opts.headers || {}) };
+      if (opts.body && typeof opts.body === 'string' &&
+          !Object.keys(headers).some(k => k.toLowerCase() === 'content-type')) {
+        headers['Content-Type'] = 'application/json';
+      }
+      const res = await fetch('/api/admin' + path, { credentials: 'include', ...opts, headers });
       const data = res.ok ? await res.json() : null;
       if (res.status === 401) { show('loginView'); hide('appView'); }
       return { ok: res.ok, status: res.status, data };
