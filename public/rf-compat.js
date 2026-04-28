@@ -877,6 +877,13 @@
             window._ofApplySnowState(!!data.pageSnowEnabled);
           }
           applyAudioGateState(!!data.audioGateBlocked, data.audioGateReason || '');
+          // Show-not-playing is a SEPARATE, non-sticky signal from the audio
+          // gate. The launcher button stays visible (so viewers can still
+          // tap it) but the player panel content swaps to a "Show isn't
+          // playing right now" message. Toggles freely as FPP starts/stops.
+          if (typeof window._ofApplyShowNotPlaying === 'function') {
+            window._ofApplyShowNotPlaying(!!data.showNotPlaying);
+          }
         }
       } catch {}
     }
@@ -1372,6 +1379,97 @@
     const closeBtn = panel.querySelector('#of-listen-close');
     const pillText = minimizedPill.querySelector('#of-listen-pill-text');
 
+    // ============================================================
+    // SHOW-NOT-PLAYING STATE
+    //
+    // When the server reports that FPP isn't actively playing a sequence
+    // (e.g. show is between songs, FPP stopped, plugin stale), we swap
+    // the player into a stripped-down "Show isn't playing right now"
+    // message instead of hiding the launcher. Per Will's spec: viewers
+    // should NOT have to refresh to get the player back when the show
+    // resumes — so the launcher stays available, and this state toggles
+    // freely as FPP starts/stops.
+    //
+    // Stripped state hides: cover art, title/artist/status block, play,
+    // mute, and minimize buttons. Shows: a centered message and the
+    // close (×) button. Restoring un-hides everything.
+    // ============================================================
+
+    // Locate the inner column that holds title/artist/status — it's the
+    // sibling of coverEl with no ID. Cache it so we don't re-query.
+    const textCol = coverEl.nextElementSibling;
+
+    // Inject the "not playing" message element. Hidden by default; lives
+    // in the same flex row as the cover so it can take its place when
+    // we hide the cover/text/buttons.
+    const notPlayingMsg = document.createElement('div');
+    notPlayingMsg.id = 'of-listen-not-playing';
+    notPlayingMsg.style.cssText = `
+      flex: 1; min-width: 0;
+      text-align: center;
+      font-size: 15px; font-weight: 500;
+      color: rgba(255,255,255,0.92);
+      padding: 4px 8px;
+      display: none;
+    `;
+    notPlayingMsg.textContent = "Show isn't playing right now";
+    // Insert before the close button so the close stays at the right edge.
+    closeBtn.parentElement.insertBefore(notPlayingMsg, closeBtn);
+
+    let _showNotPlaying = false;
+
+    function applyShowNotPlaying(notPlaying) {
+      // No-op if state hasn't changed — avoids redundant DOM thrash on
+      // every 5s poll.
+      if (notPlaying === _showNotPlaying) return;
+      _showNotPlaying = notPlaying;
+
+      if (notPlaying) {
+        // Hide the hidden minimized pill if it was visible — a "Playing"
+        // indicator while nothing is playing would be confusing.
+        minimizedPill.style.display = 'none';
+
+        // Stop any in-flight audio so we're not pumping silence (or worse,
+        // stale buffer tails) through the speakers while showing "not
+        // playing." Don't tear down audioCtx — recreating it later requires
+        // a user gesture on iOS, which would break the resume-on-restart
+        // flow.
+        try { stopAudio(); } catch {}
+
+        // Hide the player content. notPlayingMsg has flex:1 so it takes
+        // the textCol's place. Close (×) stays visible.
+        coverEl.style.display = 'none';
+        if (textCol) textCol.style.display = 'none';
+        playBtn.style.display = 'none';
+        muteBtn.style.display = 'none';
+        minBtn.style.display = 'none';
+        notPlayingMsg.style.display = 'block';
+      } else {
+        notPlayingMsg.style.display = 'none';
+        coverEl.style.display = '';
+        if (textCol) textCol.style.display = '';
+        playBtn.style.display = '';
+        muteBtn.style.display = '';
+        minBtn.style.display = '';
+        // If the user has the panel open when the show resumes, get audio
+        // going. If audioCtx already exists (panel was opened during a
+        // prior playing window), a syncOnce() picks up the new track.
+        // If not (panel was opened in the not-playing state), we need a
+        // full startup() — but Web Audio init requires a user gesture on
+        // iOS, so this will only succeed if the user interacted recently.
+        // Acceptable: if startup fails silently, the panel still shows the
+        // (now-empty) controls and they can tap play to retry.
+        if (panelMode === 'open') {
+          if (audioCtx) {
+            try { syncOnce(); } catch {}
+          } else {
+            try { startup(); } catch {}
+          }
+        }
+      }
+    }
+    window._ofApplyShowNotPlaying = applyShowNotPlaying;
+
     // Apply marquee scroll if text overflows the wrapper. Called after any
     // title/artist text update. Adds 24px padding on the "scrolled-to" position
     // so the user can see the full text comfortably. Speed scales with overflow:
@@ -1562,6 +1660,14 @@
     // permission prompts, no GPS. Showrunners playing original or licensed
     // content shouldn't have to ask viewers for location just to listen.
     btn.onclick = async () => {
+      // If the show isn't currently playing, there's no audio to gate on.
+      // Skip the location prompt entirely — just open the panel so the
+      // user sees the "Show isn't playing" message. We'll ask for location
+      // when it actually matters (when they tap to listen to real audio).
+      if (_showNotPlaying) {
+        setMode('open');
+        return;
+      }
       if (!boot.audioGateEnabled) {
         setMode('open');
         return;
@@ -1631,7 +1737,12 @@
         // Force reflow then transition in
         void panel.offsetHeight;
         panel.style.transform = 'translateY(0)';
-        if (!audioCtx) startup();
+        // Skip audio init when the show isn't playing — there's nothing
+        // to sync to, and starting audio + running the gate check would
+        // cause syncOnce() to flip the gate latch and immediately hide
+        // the panel we just opened. The applyShowNotPlaying transition
+        // back to false will call startup() when the show resumes.
+        if (!audioCtx && !_showNotPlaying) startup();
       } else if (mode === 'minimized') {
         panel.style.transform = 'translateY(100%)';
         setTimeout(() => { panel.style.display = 'none'; }, 250);
