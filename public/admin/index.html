@@ -1591,7 +1591,7 @@
 
     <!-- Sticky header -->
     <header class="app-header">
-      <span class="app-brand">ShowPilot <span class="app-version">v0.28.0</span></span>
+      <span class="app-brand">ShowPilot <span class="app-version">v0.28.1</span></span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
       <span class="header-meta">
@@ -2374,8 +2374,11 @@
                 <input type="number" id="cfg_jukebox_queue_depth" min="0" max="100" onchange="saveSetting('jukebox_queue_depth', this.value)" />
               </div>
               <div>
-                <label for="cfg_jukebox_sequence_request_limit">Max requests per viewer per round</label>
+                <label for="cfg_jukebox_sequence_request_limit">Max copies of the same song in queue</label>
                 <input type="number" id="cfg_jukebox_sequence_request_limit" min="0" max="20" onchange="saveSetting('jukebox_sequence_request_limit', this.value)" />
+                <p class="muted" style="font-size: 0.8rem; margin-top: 0.25rem;">
+                  Counts pending requests for the same song across all viewers. Set to 0 for unlimited.
+                </p>
               </div>
             </div>
             <div class="row" style="margin-top: 0.75rem; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
