@@ -29,6 +29,9 @@ dist/
 build/
 *.tar.gz
 
+# ShipPilot release manifest (never committed; defense in depth)
+.release.json
+
 # Environment
 .env
 .env.local
