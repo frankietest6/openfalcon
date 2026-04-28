@@ -486,9 +486,14 @@ router.get('/visual-config', (req, res) => {
   // on refresh (see applyAudioGateState) because gate state implies "you
   // can't listen here at all" — but show-not-playing should toggle freely
   // as FPP starts/stops between songs without forcing viewers to refresh.
-  // Stale heartbeat = FPP isn't actively reporting a sequence right now.
-  // Threshold of 10s gives comfortable margin over the plugin's ~1Hz report
-  // rate without lingering after the show stops.
+  //
+  // Threshold rationale: the plugin currently only POSTs to /api/plugin/playing
+  // on sequence CHANGE, not on a fixed cadence — so last_updated bumps once
+  // per song, not once per second. With typical 2-4min songs, a tight 10s
+  // threshold made the viewer flap to "not playing" almost immediately after
+  // each song change. 180s gives comfortable headroom for the longest songs
+  // we play while still catching a truly silent FPP within a few minutes.
+  // (The proper fix is a 1Hz heartbeat from the plugin; tracked separately.)
   let showNotPlaying = false;
   const np = getNowPlaying();
   if (!np || !np.sequence_name) {
@@ -498,7 +503,7 @@ router.get('/visual-config', (req, res) => {
     // (no TZ suffix). Adding 'Z' makes Date.parse treat it as UTC, matching how
     // it was written.
     const lastMs = Date.parse(np.last_updated + 'Z');
-    if (!isFinite(lastMs) || (Date.now() - lastMs) > 10_000) {
+    if (!isFinite(lastMs) || (Date.now() - lastMs) > 180_000) {
       showNotPlaying = true;
     }
   }
