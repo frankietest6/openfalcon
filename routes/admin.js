@@ -199,6 +199,7 @@ router.put('/config', requireAdmin, (req, res) => {
     // PSA
     'play_psa_enabled',
     'psa_frequency',
+    'psa_trigger_mode',  // 'interactions' | 'sequences' (v0.30.0+)
     // Viewer presence
     'check_viewer_present',
     'viewer_present_mode',
@@ -233,6 +234,12 @@ router.put('/config', requireAdmin, (req, res) => {
   const updates = {};
   for (const k of allowed) {
     if (k in req.body) updates[k] = req.body[k];
+  }
+
+  // Sanitize psa_trigger_mode (v0.30.0+) to one of two allowed values.
+  // Anything else falls back to 'interactions' (the default + safe option).
+  if ('psa_trigger_mode' in updates && updates.psa_trigger_mode !== 'sequences') {
+    updates.psa_trigger_mode = 'interactions';
   }
 
   // When admin sets viewer_control_mode to something other than OFF, remember it

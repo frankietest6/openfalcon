@@ -127,31 +127,51 @@ router.get('/state', (req, res) => {
     psa: null,
   };
 
-  // PSA check — if enabled and threshold met, play a PSA instead
-  if (cfg.play_psa_enabled &&
-      cfg.psa_frequency > 0 &&
-      cfg.interactions_since_last_psa >= cfg.psa_frequency) {
+  // PSA check — if enabled and threshold met, play a PSA instead.
+  // Two counting modes (psa_trigger_mode):
+  //   'interactions' — count viewer interactions (votes / jukebox requests).
+  //                    Counter is interactions_since_last_psa, incremented
+  //                    in /vote and /jukebox/add. Only meaningful when
+  //                    viewers are actually engaging.
+  //   'sequences' —    count FPP sequence transitions (excluding PSAs
+  //                    themselves). Counter is sequences_since_last_psa,
+  //                    incremented in /playing below. Fires regardless of
+  //                    viewer activity — best for schedule-driven shows.
+  if (cfg.play_psa_enabled && cfg.psa_frequency > 0) {
+    const mode = cfg.psa_trigger_mode === 'sequences' ? 'sequences' : 'interactions';
+    const counter = mode === 'sequences'
+      ? (cfg.sequences_since_last_psa || 0)
+      : (cfg.interactions_since_last_psa || 0);
 
-    const psa = db.prepare(`
-      SELECT name, sort_order FROM sequences
-      WHERE is_psa = 1 AND visible = 1
-      ORDER BY COALESCE(last_played_at, '1970-01-01') ASC
-      LIMIT 1
-    `).get();
+    if (counter >= cfg.psa_frequency) {
+      const psa = db.prepare(`
+        SELECT name, sort_order FROM sequences
+        WHERE is_psa = 1 AND visible = 1
+        ORDER BY COALESCE(last_played_at, '1970-01-01') ASC
+        LIMIT 1
+      `).get();
 
-    if (psa) {
-      const psaEntry = { sequence: psa.name, playlistIndex: psa.sort_order };
-      response.psa = psaEntry;
-      db.prepare(`UPDATE config SET interactions_since_last_psa = 0 WHERE id = 1`).run();
+      if (psa) {
+        const psaEntry = { sequence: psa.name, playlistIndex: psa.sort_order };
+        response.psa = psaEntry;
+        // Reset only the counter we acted on. The other counter keeps
+        // accumulating in the background — operators switching modes
+        // mid-show don't get a hard reset to zero.
+        if (mode === 'sequences') {
+          db.prepare(`UPDATE config SET sequences_since_last_psa = 0 WHERE id = 1`).run();
+        } else {
+          db.prepare(`UPDATE config SET interactions_since_last_psa = 0 WHERE id = 1`).run();
+        }
 
-      // Deliver PSA via the mode-appropriate slot so plugin acts on it
-      if (cfg.viewer_control_mode === 'VOTING') response.winningVote = psaEntry;
-      else if (cfg.viewer_control_mode === 'JUKEBOX') response.nextRequest = psaEntry;
+        // Deliver PSA via the mode-appropriate slot so plugin acts on it
+        if (cfg.viewer_control_mode === 'VOTING') response.winningVote = psaEntry;
+        else if (cfg.viewer_control_mode === 'JUKEBOX') response.nextRequest = psaEntry;
 
-      // Remember we handed this out as a viewer-driven play (PSA still counts as one)
-      rememberHandoff(psa.name, 'psa');
+        // Remember we handed this out as a viewer-driven play (PSA still counts as one)
+        rememberHandoff(psa.name, 'psa');
 
-      return res.json(response);
+        return res.json(response);
+      }
     }
   }
 
@@ -530,7 +550,7 @@ router.post('/playing', (req, res) => {
     // an in-flight entry is the one currently playing or about to start
     // and shouldn't be removed. The cooldown timer itself is implicit:
     // last_played_at + cooldown_minutes is checked at request/voting time.
-    const seq = db.prepare(`SELECT id, cooldown_minutes FROM sequences WHERE name = ?`).get(name);
+    const seq = db.prepare(`SELECT id, cooldown_minutes, is_psa FROM sequences WHERE name = ?`).get(name);
     if (seq && seq.cooldown_minutes > 0) {
       const purged = db.prepare(`
         DELETE FROM jukebox_queue
@@ -539,6 +559,18 @@ router.post('/playing', (req, res) => {
       if (purged.changes > 0) {
         console.log(`[cooldown] Purged ${purged.changes} queued copies of "${name}" (cooldown ${seq.cooldown_minutes}m)`);
       }
+    }
+
+    // Sequence-based PSA counter (v0.30.0+). Increment on every NON-PSA
+    // sequence transition. PSAs themselves don't count toward the next
+    // PSA — otherwise frequency=1 would loop PSA→PSA forever. We also
+    // only increment for sequences ShowPilot knows about (seq is non-null);
+    // schedule fillers FPP plays that aren't in our DB don't count. The
+    // counter increments regardless of psa_trigger_mode so switching
+    // modes doesn't lose history. The threshold check in /state decides
+    // whether to consult it.
+    if (seq && !seq.is_psa) {
+      db.prepare(`UPDATE config SET sequences_since_last_psa = sequences_since_last_psa + 1 WHERE id = 1`).run();
     }
   }
 

@@ -1591,7 +1591,7 @@
 
     <!-- Sticky header -->
     <header class="app-header">
-      <span class="app-brand">ShowPilot <span class="app-version">v0.29.3</span></span>
+      <span class="app-brand">ShowPilot <span class="app-version">v0.30.0</span></span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
       <span class="header-meta">
@@ -2555,10 +2555,36 @@
             <h3>PSA injection</h3>
             <div class="row">
               <input type="checkbox" id="cfg_play_psa_enabled" onchange="saveSetting('play_psa_enabled', this.checked ? 1 : 0)" />
-              <label for="cfg_play_psa_enabled" style="margin: 0;">Inject PSA every N interactions</label>
+              <label for="cfg_play_psa_enabled" style="margin: 0;">Inject PSAs into the show</label>
             </div>
+            <p class="muted" style="font-size: 0.85rem; margin: 0.5rem 0 1rem;">
+              Periodically replaces a played sequence with a "PSA" sequence — useful for tip-jar reminders,
+              FM frequency callouts, safety messages, sponsor mentions. Mark a sequence as a PSA in the
+              Sequences tab. The least-recently-played PSA is chosen each time.
+            </p>
+
+            <label for="cfg_psa_trigger_mode" style="margin-top: 0.5rem;">When to fire</label>
+            <select id="cfg_psa_trigger_mode" onchange="onPsaTriggerModeChange(this.value)" style="max-width: 360px;">
+              <option value="interactions">After every N viewer interactions (votes / requests)</option>
+              <option value="sequences">After every N sequences FPP plays</option>
+            </select>
+            <!-- Two side-by-side help blocks; only one shows based on the selected mode.
+                 Concrete descriptions of what each mode means in practice — operators
+                 picked the wrong one historically because "every 5" was ambiguous. -->
+            <div id="psaModeHelp_interactions" class="muted" style="font-size: 0.85rem; margin: 0.4rem 0 1rem; padding: 0.6rem 0.8rem; background: var(--surface-elevated); border-radius: 6px;">
+              <strong>Interactions mode.</strong> The counter ticks up each time a viewer votes or makes a jukebox
+              request. After <em>N</em> of those, the next viewer-driven play is replaced with a PSA. Best for
+              shows where most plays are viewer-driven. <strong>If nobody is voting or requesting, PSAs never fire.</strong>
+            </div>
+            <div id="psaModeHelp_sequences" class="muted" style="font-size: 0.85rem; margin: 0.4rem 0 1rem; padding: 0.6rem 0.8rem; background: var(--surface-elevated); border-radius: 6px; display: none;">
+              <strong>Sequences mode.</strong> The counter ticks up each time FPP plays a sequence (PSAs themselves
+              don't count). After <em>N</em> sequences, the next plugin poll receives a PSA to play. Fires regardless
+              of viewer activity — best for schedule-driven shows that want regular sponsor or safety
+              reminders even when no one is voting.
+            </div>
+
             <div class="row">
-              <label for="cfg_psa_frequency" style="margin: 0;">Frequency (interactions between PSAs):</label>
+              <label for="cfg_psa_frequency" style="margin: 0;"><span id="cfg_psa_frequency_label">Frequency (interactions between PSAs):</span></label>
               <input type="number" id="cfg_psa_frequency" min="1" max="100" style="max-width: 100px;" onchange="saveSetting('psa_frequency', this.value)" />
             </div>
 
@@ -4149,6 +4175,11 @@
       setVal('cfg_tiebreak_duration_sec', c.tiebreak_duration_sec || 60);
       setChk('cfg_play_psa_enabled', c.play_psa_enabled);
       setVal('cfg_psa_frequency', c.psa_frequency);
+      // Trigger mode (v0.30.0+): drives which help block + label text shows.
+      // Falls back to 'interactions' for older configs without the column.
+      const trigMode = c.psa_trigger_mode === 'sequences' ? 'sequences' : 'interactions';
+      setVal('cfg_psa_trigger_mode', trigMode);
+      applyPsaTriggerModeUi(trigMode);
       setChk('cfg_check_viewer_present', c.check_viewer_present);
       setVal('cfg_show_latitude', c.show_latitude);
       setVal('cfg_show_longitude', c.show_longitude);
@@ -4627,6 +4658,27 @@
       if (!r.ok) {
         showAlert('Failed to save ' + key);
       }
+    }
+
+    // PSA trigger mode UI helpers (v0.30.0+). Two pieces:
+    //   1. Show the help block matching the active mode (hide the other).
+    //   2. Update the frequency label to read "Frequency (interactions
+    //      between PSAs)" or "Frequency (sequences between PSAs)" so the
+    //      number input is unambiguous.
+    function applyPsaTriggerModeUi(mode) {
+      const isSequences = mode === 'sequences';
+      const showHelp = (id, show) => { const el = document.getElementById(id); if (el) el.style.display = show ? '' : 'none'; };
+      showHelp('psaModeHelp_interactions', !isSequences);
+      showHelp('psaModeHelp_sequences',     isSequences);
+      const lbl = document.getElementById('cfg_psa_frequency_label');
+      if (lbl) lbl.textContent = isSequences
+        ? 'Frequency (sequences between PSAs):'
+        : 'Frequency (interactions between PSAs):';
+    }
+
+    function onPsaTriggerModeChange(mode) {
+      applyPsaTriggerModeUi(mode);
+      saveSetting('psa_trigger_mode', mode);
     }
 
     async function detectMyLocation() {
