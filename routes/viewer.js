@@ -307,6 +307,28 @@ router.post('/vote', (req, res) => {
     });
   }
 
+  // Repeat blockers (v0.31.1+): block votes for the currently-playing song
+  // or the one already winning the round (which would otherwise be next up).
+  // For the "next up" case in voting, the highest-vote sequence is what
+  // gets handed to FPP — checking the top of the tally matches /state.
+  const npV = getNowPlaying();
+  if (cfg.block_vote_currently_playing && npV.sequence_name === seq.name) {
+    return res.status(409).json({ error: 'That song is playing right now. Try another.' });
+  }
+  if (cfg.block_vote_next_up) {
+    const top = db.prepare(`
+      SELECT sequence_name FROM votes
+      WHERE round_id = ?
+      GROUP BY sequence_name
+      ORDER BY COUNT(*) DESC
+      LIMIT 1
+    `).get(cfg.current_voting_round);
+    const nextUp = top ? top.sequence_name : (npV.next_sequence_name || null);
+    if (nextUp && nextUp === seq.name) {
+      return res.status(409).json({ error: 'That song is already up next. Try another.' });
+    }
+  }
+
   const token = ensureViewerToken(req, res);
 
   if (cfg.prevent_multiple_votes) {
@@ -439,6 +461,26 @@ router.post('/jukebox/add', (req, res) => {
       error: 'That sequence was recently played. It will be available again shortly.',
       cooldown_until: cooldownUntil,
     });
+  }
+
+  // Repeat blockers (v0.31.1+): don't let viewers queue the song that's
+  // currently playing or the one already lined up next. "Next up" mirrors
+  // the same priority order /state computes — first in the jukebox queue
+  // if there is one, otherwise FPP's scheduled next.
+  const np = getNowPlaying();
+  if (cfg.block_request_currently_playing && np.sequence_name === seq.name) {
+    return res.status(409).json({ error: 'That song is playing right now. Try another.' });
+  }
+  if (cfg.block_request_next_up) {
+    const firstQueued = db.prepare(
+      `SELECT sequence_name FROM jukebox_queue
+       WHERE played = 0 AND sequence_name != COALESCE(?, '')
+       ORDER BY requested_at ASC LIMIT 1`
+    ).get(np.sequence_name || null);
+    const nextUp = firstQueued ? firstQueued.sequence_name : (np.next_sequence_name || null);
+    if (nextUp && nextUp === seq.name) {
+      return res.status(409).json({ error: 'That song is already up next. Try another.' });
+    }
   }
 
   const token = ensureViewerToken(req, res);

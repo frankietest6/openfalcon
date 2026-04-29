@@ -187,11 +187,15 @@ router.put('/config', requireAdmin, (req, res) => {
     'jukebox_sequence_request_limit',
     'prevent_multiple_requests',
     'viewer_request_limit',
+    'block_request_currently_playing',
+    'block_request_next_up',
     // Voting safeguards
     'prevent_multiple_votes',
     'reset_votes_after_round',
     'tiebreak_enabled',
     'tiebreak_duration_sec',
+    'block_vote_currently_playing',
+    'block_vote_next_up',
     // tiebreak_active, tiebreak_started_at, tiebreak_deadline_at,
     // tiebreak_candidates are server-managed runtime state, not admin
     // settings — explicitly NOT whitelisted here so they can't be
