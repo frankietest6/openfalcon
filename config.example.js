@@ -88,6 +88,25 @@ module.exports = {
     resetAfterWinnerPlays: true,
   },
 
+  // ============================================================
+  // Demo mode (v0.31.0+)
+  // ============================================================
+  // For running a public demo instance of ShowPilot. When enabled, both
+  // the admin and viewer pages render a banner advertising the demo and
+  // when the next reset will occur.
+  //
+  // The reset itself is NOT performed by ShowPilot — it's expected to be
+  // driven externally (cron + a script that stops the process, restores
+  // a known-good data dir, and writes data/demo-next-reset.json with the
+  // ISO timestamp of the next reset). This file separation keeps demo
+  // behavior out of the application's hot path.
+  //
+  // demoCredentialsHint is shown verbatim on the banner so visitors know
+  // how to log in. Leave empty to hide that line.
+  demoMode: false,
+  demoResetIntervalMinutes: 10,
+  demoCredentialsHint: 'admin / admin',
+
   // Logging
   logLevel: 'info', // 'debug' | 'info' | 'warn' | 'error'
 };

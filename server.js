@@ -113,6 +113,11 @@ app.use((req, res, next) => {
 // Routes
 // ============================================================
 
+// Public unauthenticated endpoints (v0.31.0+) — currently just demo-status.
+// Lives outside /api/plugin and /api/admin because it has neither bearer-token
+// nor cookie auth. Read-only by design.
+app.use('/api/public', require('./routes/public'));
+
 // FPP plugin endpoints — mounted at /api/plugin for the ShowPilot plugin
 app.use('/api/plugin', require('./routes/plugin'));
 

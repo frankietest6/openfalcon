@@ -1615,6 +1615,52 @@
     .sp-modal-actions button.sp-btn-danger:hover {
       filter: brightness(1.1);
     }
+
+    /* ============================================================
+       Demo banner (v0.31.0+) — only renders when /api/public/demo-status
+       returns demoMode:true. Sits at the very top of the page so it
+       shows above both the login view and the main appView.
+       ============================================================ */
+    #demoBanner {
+      display: none; /* JS unhides when demoMode is on */
+      align-items: center;
+      justify-content: center;
+      gap: 18px;
+      padding: 10px 20px;
+      background: linear-gradient(90deg, #ff7a3c, #ffb155);
+      color: #1a0e00;
+      font-size: 13.5px;
+      font-weight: 500;
+      letter-spacing: .005em;
+      box-shadow: 0 1px 0 rgba(0,0,0,.15);
+      flex-wrap: wrap;
+      text-align: center;
+    }
+    #demoBanner strong {
+      font-weight: 700;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+      font-size: 12px;
+      padding: 3px 8px;
+      border-radius: 4px;
+      background: rgba(0,0,0,.18);
+      color: #fff;
+    }
+    #demoBanner .demo-sep {
+      opacity: .35;
+    }
+    #demoBanner code {
+      background: rgba(0,0,0,.22);
+      color: #fff;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12.5px;
+    }
+    #demoBanner .demo-countdown {
+      font-variant-numeric: tabular-nums;
+      font-weight: 600;
+    }
   </style>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
   <script src="https://unpkg.com/monaco-editor@0.45.0/min/vs/loader.js"></script>
@@ -1675,6 +1721,18 @@
   </script>
 </head>
 <body class="theme-stage-dark">
+
+  <!-- Demo banner (v0.31.0+) — hidden unless /api/public/demo-status reports
+       demoMode:true. Populated and unhidden by initDemoBanner() near the
+       bottom of this file. -->
+  <div id="demoBanner" role="status" aria-live="polite">
+    <strong>Demo</strong>
+    <span class="demo-msg">Live demo instance — feel free to break things</span>
+    <span class="demo-sep">·</span>
+    <span class="demo-creds-wrap" hidden>Login: <code class="demo-creds"></code></span>
+    <span class="demo-sep demo-creds-wrap" hidden>·</span>
+    <span>Resets in <span class="demo-countdown">—</span></span>
+  </div>
 
   <!-- ============================================================
        LOGIN VIEW
@@ -1766,7 +1824,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.30.6</span>
+        <span class="app-version">v0.31.0</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -7380,6 +7438,71 @@
         }
       }, 500);
     });
+
+    // ============================================================
+    // Demo banner hydration (v0.31.0+)
+    // ============================================================
+    // Polls /api/public/demo-status once on load. If demoMode is true,
+    // unhides the banner and runs a 1-second countdown to nextResetAt.
+    // We re-fetch nextResetAt every 60s so that after a reset we pick up
+    // the new timestamp without needing a page refresh. Cheap — one
+    // small JSON response per minute.
+    (function initDemoBanner() {
+      const banner = document.getElementById('demoBanner');
+      if (!banner) return;
+      const countdownEl = banner.querySelector('.demo-countdown');
+      const credsWraps = banner.querySelectorAll('.demo-creds-wrap');
+      const credsEl = banner.querySelector('.demo-creds');
+      let nextResetAt = null;
+      let countdownTimer = null;
+
+      function fmt(ms) {
+        if (ms <= 0) return 'now';
+        const total = Math.floor(ms / 1000);
+        const m = Math.floor(total / 60);
+        const s = total % 60;
+        return m + ':' + String(s).padStart(2, '0');
+      }
+
+      function tick() {
+        if (!nextResetAt) {
+          countdownEl.textContent = '—';
+          return;
+        }
+        const ms = nextResetAt - Date.now();
+        countdownEl.textContent = fmt(ms);
+      }
+
+      async function refresh() {
+        try {
+          const r = await fetch('/api/public/demo-status', { credentials: 'omit' });
+          if (!r.ok) return;
+          const data = await r.json();
+          if (!data.demoMode) {
+            banner.style.display = 'none';
+            return;
+          }
+          banner.style.display = 'flex';
+          if (data.credentialsHint && credsEl) {
+            credsEl.textContent = data.credentialsHint;
+            credsWraps.forEach(el => { el.hidden = false; });
+          }
+          if (data.nextResetAt) {
+            const t = Date.parse(data.nextResetAt);
+            if (Number.isFinite(t)) nextResetAt = t;
+          }
+          tick();
+        } catch (err) {
+          // Network blip; banner just keeps showing the last value.
+        }
+      }
+
+      refresh();
+      // 1s countdown so the timer is responsive without re-fetching
+      countdownTimer = setInterval(tick, 1000);
+      // 60s polling so we pick up the new reset window after each cycle
+      setInterval(refresh, 60000);
+    })();
 
     // ============================================================
     // QUEUE TAB
