@@ -275,6 +275,69 @@
       vertical-align: middle;
       box-shadow: 0 0 6px rgba(245,158,11,0.4);
     }
+    /* ============================================================
+       ShowPilot logo (mark + wordmark) — themeable
+       ============================================================ */
+    :root, .theme-stage-dark {
+      --logo-primary: var(--rgb-amber, #f59e0b);
+      --logo-accent:  var(--accent, #ef4444);
+      --logo-dim:     rgba(245, 158, 11, 0.45);
+    }
+    .theme-stage-light {
+      --logo-primary: var(--text, #1a2c4f);
+      --logo-accent:  var(--accent, #dc2626);
+      --logo-dim:     rgba(26, 44, 79, 0.35);
+    }
+    /* Logo sits as a flex row inside the existing .app-brand wrapper.
+       Extra margin-right gives breathing room between the version label
+       and whatever follows (mode pill, etc.) so the brand cluster reads
+       as one unit. */
+    .app-brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.55rem;
+      margin-right: 0.5rem;
+    }
+    .app-brand-mark {
+      width: 28px;
+      height: 28px;
+      flex-shrink: 0;
+    }
+    .app-brand-mark rect.lp { fill: var(--logo-primary); }
+    .app-brand-mark rect.la { fill: var(--logo-accent); }
+    .app-brand-mark rect.ld { fill: var(--logo-dim); }
+    .app-brand-text { color: var(--text); }
+    /* The original .app-version had margin-left for inline layout. Now that
+       .app-brand is flex with gap, the margin-left is additive — null it.
+       Same applies to .app-beta-pill which lives inside .app-brand. */
+    .app-brand .app-version,
+    .app-brand .app-beta-pill { margin-left: 0; }
+    @media (max-width: 600px) {
+      .app-brand { margin-right: 0.25rem; gap: 0.4rem; }
+      .app-brand-mark { width: 22px; height: 22px; }
+    }
+
+    .login-brand {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.75rem;
+      margin-bottom: 0.5rem;
+    }
+    .login-brand-mark {
+      width: 44px;
+      height: 44px;
+      flex-shrink: 0;
+    }
+    .login-brand-mark rect.lp { fill: var(--logo-primary); }
+    .login-brand-mark rect.la { fill: var(--logo-accent); }
+    .login-brand-mark rect.ld { fill: var(--logo-dim); }
+    .login-brand h1 { margin: 0; }
+    .login-brand-sub {
+      color: var(--text-dim);
+      font-weight: 400;
+    }
+
     .mode-pill {
       font-size: 0.72rem;
       padding: 4px 10px;
@@ -1557,7 +1620,33 @@
        LOGIN VIEW
        ============================================================ -->
   <div id="loginView" class="hidden">
-    <h1>ShowPilot Admin</h1>
+    <div class="login-brand">
+      <svg class="login-brand-mark" viewBox="-70 -70 140 140" xmlns="http://www.w3.org/2000/svg" aria-label="ShowPilot logo">
+        <rect class="ld" x="-2.3" y="-32" width="4.5" height="4.5" rx="0.9"/>
+        <rect class="ld" x="26" y="-2.3" width="4.5" height="4.5" rx="0.9"/>
+        <rect class="ld" x="-2.3" y="27" width="4.5" height="4.5" rx="0.9"/>
+        <rect class="ld" x="-32" y="-2.3" width="4.5" height="4.5" rx="0.9"/>
+        <rect class="lp" x="-5" y="-55" width="10" height="10" rx="2"/>
+        <rect class="la" x="30" y="-40" width="9" height="9" rx="2"/>
+        <rect class="lp" x="45" y="-5" width="10" height="10" rx="2"/>
+        <rect class="la" x="30" y="31" width="9" height="9" rx="2"/>
+        <rect class="lp" x="-5" y="45" width="10" height="10" rx="2"/>
+        <rect class="la" x="-39" y="31" width="9" height="9" rx="2"/>
+        <rect class="lp" x="-55" y="-5" width="10" height="10" rx="2"/>
+        <rect class="la" x="-39" y="-40" width="9" height="9" rx="2"/>
+        <rect class="lp" x="-10" y="-15" width="5" height="5" rx="1"/>
+        <rect class="lp" x="-10" y="-9"  width="5" height="5" rx="1"/>
+        <rect class="lp" x="-10" y="-3"  width="5" height="5" rx="1"/>
+        <rect class="lp" x="-10" y="3"   width="5" height="5" rx="1"/>
+        <rect class="lp" x="-10" y="9"   width="5" height="5" rx="1"/>
+        <rect class="lp" x="-4"  y="-9"  width="5" height="5" rx="1"/>
+        <rect class="lp" x="-4"  y="-3"  width="5" height="5" rx="1"/>
+        <rect class="lp" x="-4"  y="3"   width="5" height="5" rx="1"/>
+        <rect class="lp" x="2"   y="-3"  width="5" height="5" rx="1"/>
+        <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
+      </svg>
+      <h1>ShowPilot <span class="login-brand-sub">Admin</span></h1>
+    </div>
     <p class="subtitle">Enter your username and password to continue.</p>
     <input type="text" id="loginUsername" placeholder="Username" autocomplete="username" autocapitalize="none" autocorrect="off" onkeydown="if(event.key==='Enter')document.getElementById('loginPassword').focus();" />
     <input type="password" id="loginPassword" placeholder="Password" autocomplete="current-password" onkeydown="if(event.key==='Enter')login();" />
@@ -1591,7 +1680,34 @@
 
     <!-- Sticky header -->
     <header class="app-header">
-      <span class="app-brand">ShowPilot <span class="app-version">v0.30.2</span></span>
+      <span class="app-brand">
+        <svg class="app-brand-mark" viewBox="-70 -70 140 140" xmlns="http://www.w3.org/2000/svg" aria-label="ShowPilot logo">
+          <rect class="ld" x="-2.3" y="-32" width="4.5" height="4.5" rx="0.9"/>
+          <rect class="ld" x="26" y="-2.3" width="4.5" height="4.5" rx="0.9"/>
+          <rect class="ld" x="-2.3" y="27" width="4.5" height="4.5" rx="0.9"/>
+          <rect class="ld" x="-32" y="-2.3" width="4.5" height="4.5" rx="0.9"/>
+          <rect class="lp" x="-5" y="-55" width="10" height="10" rx="2"/>
+          <rect class="la" x="30" y="-40" width="9" height="9" rx="2"/>
+          <rect class="lp" x="45" y="-5" width="10" height="10" rx="2"/>
+          <rect class="la" x="30" y="31" width="9" height="9" rx="2"/>
+          <rect class="lp" x="-5" y="45" width="10" height="10" rx="2"/>
+          <rect class="la" x="-39" y="31" width="9" height="9" rx="2"/>
+          <rect class="lp" x="-55" y="-5" width="10" height="10" rx="2"/>
+          <rect class="la" x="-39" y="-40" width="9" height="9" rx="2"/>
+          <rect class="lp" x="-10" y="-15" width="5" height="5" rx="1"/>
+          <rect class="lp" x="-10" y="-9"  width="5" height="5" rx="1"/>
+          <rect class="lp" x="-10" y="-3"  width="5" height="5" rx="1"/>
+          <rect class="lp" x="-10" y="3"   width="5" height="5" rx="1"/>
+          <rect class="lp" x="-10" y="9"   width="5" height="5" rx="1"/>
+          <rect class="lp" x="-4"  y="-9"  width="5" height="5" rx="1"/>
+          <rect class="lp" x="-4"  y="-3"  width="5" height="5" rx="1"/>
+          <rect class="lp" x="-4"  y="3"   width="5" height="5" rx="1"/>
+          <rect class="lp" x="2"   y="-3"  width="5" height="5" rx="1"/>
+          <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
+        </svg>
+        <span class="app-brand-text">ShowPilot</span>
+        <span class="app-version">v0.30.3</span>
+      </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
       <span class="header-meta">
