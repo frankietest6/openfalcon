@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Drive-In Light Show</title>
+<style>
+  /* ============================================================
+     DRIVE-IN — vintage marquee theme for ShowPilot
+     Inspired by 1950s drive-in theater signage.
+  ============================================================ */
+  :root {
+    --bg: #0a0612;
+    --bg-2: #1c0f24;
+    --marquee: #ffd86b;
+    --marquee-glow: #ffeaa3;
+    --neon-red: #ff3a4f;
+    --neon-red-glow: #ff7088;
+    --cream: #f4ead5;
+    --dark: #0a0612;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background:
+      radial-gradient(ellipse at top, var(--bg-2), var(--bg) 70%);
+    color: var(--cream);
+    font-family: 'Times New Roman', Georgia, serif;
+    overflow-x: hidden;
+  }
+
+  /* Marquee bulbs running around the page edge */
+  .bulbs {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 1;
+  }
+  .bulbs::before, .bulbs::after {
+    content: '';
+    position: absolute;
+    height: 14px;
+    left: 0; right: 0;
+    background-image: radial-gradient(circle at center, var(--marquee-glow) 0 3px, transparent 4px);
+    background-size: 22px 14px;
+    background-position: center;
+    opacity: 0.85;
+    filter: drop-shadow(0 0 4px var(--marquee));
+    animation: bulbBlink 1.4s steps(2, end) infinite;
+  }
+  .bulbs::before { top: 8px; }
+  .bulbs::after { bottom: 8px; animation-delay: 0.7s; }
+  @keyframes bulbBlink {
+    0%, 49% { background-image: radial-gradient(circle at center, var(--marquee-glow) 0 3px, transparent 4px); }
+    50%, 100% { background-image: radial-gradient(circle at center, var(--marquee) 0 3px, transparent 4px); }
+  }
+
+  .stage { position: relative; z-index: 2; padding: 60px 20px 40px; max-width: 900px; margin: 0 auto; }
+
+  /* Big top banner — "NOW SHOWING" */
+  .marquee-top {
+    text-align: center;
+    margin-bottom: 28px;
+  }
+  .marquee-top .small {
+    font-family: 'Courier New', monospace;
+    letter-spacing: 0.5em;
+    font-size: 14px;
+    color: var(--marquee);
+    text-transform: uppercase;
+    margin: 0 0 4px;
+  }
+  .marquee-top .big {
+    font-family: 'Impact', 'Arial Black', sans-serif;
+    font-size: clamp(48px, 9vw, 96px);
+    letter-spacing: 0.04em;
+    color: var(--neon-red);
+    text-shadow:
+      0 0 8px var(--neon-red-glow),
+      0 0 24px var(--neon-red),
+      0 0 48px rgba(255, 58, 79, 0.35);
+    margin: 0;
+    transform: rotate(-1.5deg);
+    line-height: 0.9;
+  }
+  .marquee-top .underline {
+    display: inline-block;
+    margin-top: 8px;
+    color: var(--cream);
+    font-style: italic;
+    font-size: 18px;
+    border-top: 2px solid var(--cream);
+    padding-top: 6px;
+  }
+
+  /* Now-playing card — looks like a movie ticket */
+  .ticket {
+    background: linear-gradient(180deg, #fff5dc, #f0e2b8);
+    color: var(--dark);
+    padding: 22px 28px;
+    border-radius: 4px;
+    margin-bottom: 32px;
+    box-shadow:
+      0 6px 0 #b89a4a,
+      0 12px 28px rgba(0,0,0,0.5);
+    position: relative;
+    transform: rotate(-0.7deg);
+  }
+  .ticket::before, .ticket::after {
+    content: '';
+    position: absolute;
+    width: 18px; height: 18px;
+    background: var(--bg);
+    border-radius: 50%;
+    top: 50%;
+    transform: translateY(-50%);
+  }
+  .ticket::before { left: -9px; }
+  .ticket::after { right: -9px; }
+  .ticket .label {
+    font-family: 'Courier New', monospace;
+    letter-spacing: 0.3em;
+    font-size: 11px;
+    color: #7a5a1a;
+    text-transform: uppercase;
+    margin: 0 0 4px;
+  }
+  .ticket .title {
+    font-family: 'Impact', 'Arial Black', sans-serif;
+    font-size: clamp(28px, 5vw, 44px);
+    margin: 0;
+    color: var(--dark);
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+  }
+  .ticket .next {
+    margin-top: 10px;
+    font-size: 14px;
+    color: #5a3e0a;
+    font-style: italic;
+  }
+
+  /* Section heading — like a billboard */
+  .billboard-heading {
+    text-align: center;
+    margin: 36px 0 18px;
+  }
+  .billboard-heading h2 {
+    display: inline-block;
+    font-family: 'Impact', 'Arial Black', sans-serif;
+    font-size: 28px;
+    letter-spacing: 0.08em;
+    color: var(--marquee);
+    text-shadow: 0 0 12px var(--marquee-glow), 0 0 4px #000;
+    text-transform: uppercase;
+    margin: 0;
+    padding: 6px 24px;
+    border-top: 3px double var(--marquee);
+    border-bottom: 3px double var(--marquee);
+  }
+
+  /* Sequence list — voting */
+  /* The renderer emits two siblings per song (cell-vote-playlist + cell-vote)
+     directly under .voting_table — no row wrappers. We use a 2-column grid
+     so each pair lays out side-by-side. grid-auto-flow:row pairs them up. */
+  .voting_table {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 10px;
+  }
+  .voting_table .cell-vote-playlist {
+    background: rgba(244, 234, 213, 0.06);
+    border: 1px solid rgba(255, 216, 107, 0.35);
+    color: var(--cream);
+    padding: 14px 18px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px 14px;
+    font-family: 'Impact', 'Arial Black', sans-serif;
+    font-size: 22px;
+    letter-spacing: 0.04em;
+    transition: background 0.15s, border-color 0.15s;
+    min-width: 0; /* let long names ellipsize instead of pushing the count off */
+  }
+  .voting_table .cell-vote-playlist:hover {
+    background: rgba(255, 216, 107, 0.12);
+    border-color: var(--marquee);
+  }
+  .voting_table .cell-vote {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--neon-red);
+    color: #fff;
+    font-family: 'Impact', sans-serif;
+    font-size: 28px;
+    text-shadow: 0 0 8px var(--neon-red-glow);
+    border: 1px solid #aa1f31;
+    padding: 0 18px;
+    min-width: 64px; /* keep counts visually aligned across rows */
+  }
+  .cell-vote-playlist-artist {
+    flex-basis: 100%; /* drop to its own line under the name */
+    font-family: 'Times New Roman', serif;
+    font-size: 13px;
+    font-style: italic;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--marquee);
+    margin: 0;
+  }
+
+  /* Sequence list — jukebox: as a stack of "tickets" */
+  .jukebox_table {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 14px;
+  }
+  .jukebox-list {
+    background: linear-gradient(180deg, #fff5dc, #e8d8a8);
+    color: var(--dark);
+    padding: 14px 18px;
+    border-radius: 3px;
+    cursor: pointer;
+    box-shadow: 0 4px 0 #9c7d3a, 0 8px 18px rgba(0,0,0,0.4);
+    font-family: 'Impact', 'Arial Black', sans-serif;
+    font-size: 20px;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    transition: transform 0.12s;
+  }
+  .jukebox-list:hover {
+    transform: translateY(-2px);
+  }
+  .jukebox-list-artist {
+    font-family: 'Times New Roman', serif;
+    font-size: 12px;
+    font-style: italic;
+    text-transform: none;
+    letter-spacing: 0;
+    color: #5a3e0a;
+  }
+  .sequence-image {
+    width: 38px; height: 38px;
+    object-fit: cover;
+    border-radius: 2px;
+    flex-shrink: 0;
+    border: 1px solid rgba(0,0,0,0.4);
+  }
+
+  /* Queue block */
+  .queue-card {
+    background: rgba(0,0,0,0.4);
+    border: 1px dashed rgba(255, 216, 107, 0.4);
+    padding: 16px 22px;
+    margin-top: 22px;
+    color: var(--cream);
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    line-height: 1.7;
+  }
+  .queue-card .label {
+    font-family: 'Impact', sans-serif;
+    color: var(--marquee);
+    letter-spacing: 0.2em;
+    font-size: 13px;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+  }
+
+  .footer {
+    text-align: center;
+    margin-top: 40px;
+    padding-bottom: 20px;
+    color: rgba(244, 234, 213, 0.4);
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    letter-spacing: 0.2em;
+  }
+</style>
+</head>
+<body>
+  <div class="bulbs"></div>
+
+  <div class="stage">
+    <header class="marquee-top">
+      <p class="small">Tonight's Feature Presentation</p>
+      <h1 class="big">Now Showing</h1>
+      <span class="underline">A Holiday Light Spectacular</span>
+    </header>
+
+    <div class="ticket">
+      <p class="label">★ Now Playing ★</p>
+      <h2 class="title">{NOW_PLAYING}</h2>
+      <p class="next">Next on the marquee: {NEXT_PLAYLIST}</p>
+    </div>
+
+    <div {playlist-voting-dynamic-container}>
+      <div class="billboard-heading"><h2>Cast Your Vote</h2></div>
+      <div class="voting_table">{PLAYLISTS}</div>
+    </div>
+
+    <div {jukebox-dynamic-container}>
+      <div class="billboard-heading"><h2>Pick the Next Show</h2></div>
+      <div class="jukebox_table">{PLAYLISTS}</div>
+      <div class="queue-card">
+        <p class="label">Coming Up Next</p>
+        {JUKEBOX_QUEUE}
+      </div>
+    </div>
+
+    <p class="footer">★ ★ ★ &nbsp; A SHOWPILOT PRESENTATION &nbsp; ★ ★ ★</p>
+  </div>
+
+  <!-- ShowPilot UI feedback elements (hidden by default; rf-compat shows when needed) -->
+  <div id="requestSuccessful" style="display:none;">Request added to the queue!</div>
+  <div id="requestFailed" style="display:none;">Couldn't add that one — try another.</div>
+  <div id="alreadyVoted" style="display:none;">You've already voted this round.</div>
+</body>
+</html>

@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>WSPL — The Light Show Station</title>
+<style>
+  /* ============================================================
+     RADIO STATION — call-letters / DJ booth theme for ShowPilot
+     Faux FM dial, "now spinning" tape-deck feel.
+  ============================================================ */
+  :root {
+    --bg: #1a1814;
+    --panel: #2d2825;
+    --panel-light: #3a342f;
+    --gold: #d4a73a;
+    --gold-soft: #f0d68a;
+    --red: #e84545;
+    --green-led: #5dff7c;
+    --cream: #f5e8d0;
+    --text-dim: #aa9d85;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    color: var(--cream);
+    font-family: 'Helvetica Neue', Arial, sans-serif;
+    background:
+      repeating-linear-gradient(
+        0deg,
+        var(--bg) 0px,
+        var(--bg) 3px,
+        rgba(0,0,0,0.3) 3px,
+        rgba(0,0,0,0.3) 4px
+      ),
+      var(--bg);
+  }
+
+  .stage { max-width: 920px; margin: 0 auto; padding: 32px 20px 60px; }
+
+  /* Station ID — like a vintage call sign */
+  .station-id {
+    background: linear-gradient(180deg, var(--panel-light), var(--panel));
+    border: 2px solid var(--gold);
+    border-radius: 6px;
+    padding: 18px 24px;
+    text-align: center;
+    margin-bottom: 24px;
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.1),
+      inset 0 -1px 0 rgba(0,0,0,0.4),
+      0 6px 14px rgba(0,0,0,0.6);
+    position: relative;
+  }
+  .station-id .frequency {
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    color: var(--gold-soft);
+    letter-spacing: 0.3em;
+    margin: 0 0 4px;
+  }
+  .station-id .calls {
+    font-family: 'Impact', 'Arial Black', sans-serif;
+    font-size: clamp(48px, 9vw, 84px);
+    margin: 0;
+    color: var(--gold);
+    letter-spacing: 0.15em;
+    text-shadow: 0 0 8px rgba(212, 167, 58, 0.5), 0 2px 0 #000;
+  }
+  .station-id .tagline {
+    margin: 4px 0 0;
+    color: var(--cream);
+    font-style: italic;
+    font-size: 14px;
+    letter-spacing: 0.05em;
+  }
+  .on-air {
+    display: inline-block;
+    background: var(--red);
+    color: #fff;
+    padding: 4px 14px;
+    border-radius: 3px;
+    font-family: 'Impact', sans-serif;
+    font-size: 16px;
+    letter-spacing: 0.3em;
+    margin-top: 10px;
+    box-shadow: 0 0 12px rgba(232, 69, 69, 0.6);
+    animation: onAirBlink 2s ease-in-out infinite;
+  }
+  @keyframes onAirBlink {
+    0%, 50%, 100% { opacity: 1; }
+    25%, 75% { opacity: 0.7; }
+  }
+
+  /* Now spinning — looks like a cassette deck display */
+  .deck {
+    background: linear-gradient(180deg, #14130f, #1f1c17);
+    border: 1px solid var(--panel-light);
+    border-radius: 6px;
+    padding: 18px 22px;
+    margin-bottom: 28px;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    box-shadow:
+      inset 0 0 12px rgba(0,0,0,0.7),
+      0 4px 10px rgba(0,0,0,0.4);
+  }
+  .deck .led {
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    background: var(--green-led);
+    box-shadow: 0 0 10px var(--green-led), 0 0 16px rgba(93, 255, 124, 0.4);
+    flex-shrink: 0;
+  }
+  .deck .info { flex: 1; min-width: 0; }
+  .deck .label {
+    font-family: 'Courier New', monospace;
+    font-size: 10px;
+    color: var(--gold);
+    letter-spacing: 0.4em;
+    margin: 0 0 2px;
+    text-transform: uppercase;
+  }
+  .deck .track {
+    font-family: 'Courier New', monospace;
+    font-weight: bold;
+    font-size: clamp(20px, 4vw, 28px);
+    color: var(--gold-soft);
+    margin: 0;
+    text-shadow: 0 0 8px rgba(240, 214, 138, 0.3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .deck .next {
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    color: var(--text-dim);
+    margin: 6px 0 0;
+    letter-spacing: 0.05em;
+  }
+
+  /* Section heading — "REQUEST LINE OPEN" or "VOTE NOW" */
+  .booth-heading {
+    margin: 30px 0 14px;
+    padding: 8px 14px;
+    background: linear-gradient(90deg, var(--gold) 0%, var(--gold) 8px, transparent 8px);
+    color: var(--gold-soft);
+    font-family: 'Impact', sans-serif;
+    font-size: 18px;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+  }
+
+  /* Voting list — like LP listings */
+  /* 2-col grid pairs each song-cell with its vote-count sibling — see drive-in template note. */
+  .voting_table {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 0;
+    border-top: 1px solid var(--panel-light);
+  }
+  .voting_table .cell-vote-playlist {
+    padding: 14px 18px;
+    background: var(--panel);
+    color: var(--cream);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px 14px;
+    font-family: 'Helvetica Neue', sans-serif;
+    font-size: 17px;
+    transition: background 0.12s;
+    border-bottom: 1px solid var(--panel-light);
+    min-width: 0;
+  }
+  .voting_table .cell-vote-playlist:hover {
+    background: var(--panel-light);
+  }
+  .voting_table .cell-vote {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #14130f;
+    color: var(--green-led);
+    font-family: 'Courier New', monospace;
+    font-weight: bold;
+    font-size: 26px;
+    text-shadow: 0 0 8px rgba(93, 255, 124, 0.5);
+    border-left: 1px solid var(--panel-light);
+    border-bottom: 1px solid var(--panel-light);
+    padding: 0 18px;
+    min-width: 72px;
+  }
+  .cell-vote-playlist-artist {
+    flex-basis: 100%;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    color: var(--gold-soft);
+    margin: 0;
+    letter-spacing: 0.08em;
+  }
+
+  /* Jukebox grid */
+  .jukebox_table {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 10px;
+  }
+  .jukebox-list {
+    background: var(--panel);
+    border-left: 4px solid var(--gold);
+    color: var(--cream);
+    padding: 12px 16px;
+    cursor: pointer;
+    font-family: 'Helvetica Neue', sans-serif;
+    font-size: 16px;
+    transition: all 0.12s;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .jukebox-list:hover {
+    background: var(--panel-light);
+    border-left-color: var(--green-led);
+  }
+  .jukebox-list-artist {
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    color: var(--gold-soft);
+    letter-spacing: 0.06em;
+  }
+  .sequence-image {
+    width: 36px; height: 36px;
+    object-fit: cover;
+    border-radius: 50%;
+    border: 2px solid var(--gold);
+    flex-shrink: 0;
+    margin-right: 10px;
+    box-shadow: inset 0 0 0 2px var(--bg);
+  }
+
+  /* Queue — like a request log */
+  .queue-card {
+    background: var(--panel);
+    border: 1px solid var(--panel-light);
+    border-radius: 4px;
+    padding: 16px 22px;
+    margin-top: 22px;
+    color: var(--cream);
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    line-height: 1.8;
+  }
+  .queue-card .label {
+    color: var(--red);
+    font-family: 'Impact', sans-serif;
+    font-size: 14px;
+    letter-spacing: 0.3em;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+  }
+
+  .footer {
+    text-align: center;
+    margin-top: 40px;
+    color: var(--text-dim);
+    font-family: 'Courier New', monospace;
+    font-size: 11px;
+    letter-spacing: 0.2em;
+  }
+</style>
+</head>
+<body>
+  <div class="stage">
+    <header class="station-id">
+      <p class="frequency">★ 102.7 FM ★</p>
+      <h1 class="calls">WSPL</h1>
+      <p class="tagline">All-Request Holiday Light Radio</p>
+      <div class="on-air">● ON AIR</div>
+    </header>
+
+    <div class="deck">
+      <span class="led"></span>
+      <div class="info">
+        <p class="label">Now Spinning</p>
+        <p class="track">{NOW_PLAYING}</p>
+        <p class="next">↳ Coming up: {NEXT_PLAYLIST}</p>
+      </div>
+    </div>
+
+    <div {playlist-voting-dynamic-container}>
+      <h2 class="booth-heading">Vote &mdash; Top Pick Plays Next</h2>
+      <div class="voting_table">{PLAYLISTS}</div>
+    </div>
+
+    <div {jukebox-dynamic-container}>
+      <h2 class="booth-heading">Request Line is Open</h2>
+      <div class="jukebox_table">{PLAYLISTS}</div>
+      <div class="queue-card">
+        <p class="label">Request Log</p>
+        {JUKEBOX_QUEUE}
+      </div>
+    </div>
+
+    <p class="footer">WSPL ★ Broadcasting tonight ★ Powered by ShowPilot</p>
+  </div>
+
+  <div id="requestSuccessful" style="display:none;">Request received — thanks for calling in!</div>
+  <div id="requestFailed" style="display:none;">Couldn't take that request right now.</div>
+  <div id="alreadyVoted" style="display:none;">You already voted this round.</div>
+</body>
+</html>

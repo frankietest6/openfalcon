@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Neon Light Show</title>
+<style>
+  /* ============================================================
+     NEON — 80s arcade theme for ShowPilot
+     Dark backdrop with magenta/cyan neon accents.
+  ============================================================ */
+  :root {
+    --bg-deep: #050018;
+    --bg-mid: #0d0233;
+    --bg-near: #1a0648;
+    --pink: #ff1cf7;
+    --pink-soft: #ff7be8;
+    --cyan: #00f0ff;
+    --cyan-soft: #7cf3ff;
+    --yellow: #ffd60a;
+    --text: #f0eaff;
+    --text-dim: #a499d4;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    color: var(--text);
+    font-family: 'Helvetica Neue', Arial, sans-serif;
+    background:
+      linear-gradient(180deg, var(--bg-deep) 0%, var(--bg-mid) 50%, var(--bg-near) 100%);
+    overflow-x: hidden;
+    position: relative;
+  }
+
+  /* Sun + horizon */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background:
+      radial-gradient(circle at 50% 70%, rgba(255, 28, 247, 0.18) 0%, transparent 45%),
+      radial-gradient(circle at 50% 78%, var(--yellow) 0%, var(--yellow) 80px, transparent 130px);
+    z-index: 0;
+    pointer-events: none;
+  }
+  /* Grid floor */
+  body::after {
+    content: '';
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    height: 50vh;
+    background-image:
+      linear-gradient(to right, rgba(255, 28, 247, 0.4) 1px, transparent 1px),
+      linear-gradient(to top, rgba(0, 240, 255, 0.4) 1px, transparent 1px);
+    background-size: 60px 40px;
+    transform: perspective(400px) rotateX(60deg);
+    transform-origin: bottom;
+    opacity: 0.5;
+    z-index: 0;
+    pointer-events: none;
+  }
+
+  .stage {
+    position: relative;
+    z-index: 2;
+    max-width: 920px;
+    margin: 0 auto;
+    padding: 50px 22px 60px;
+  }
+
+  /* Title — chromatic outline neon */
+  .title-block { text-align: center; margin-bottom: 36px; }
+  .title-block .pretitle {
+    color: var(--cyan);
+    text-shadow: 0 0 8px var(--cyan-soft), 0 0 14px var(--cyan);
+    letter-spacing: 0.5em;
+    font-size: 12px;
+    text-transform: uppercase;
+    margin: 0 0 6px;
+  }
+  .title-block h1 {
+    margin: 0;
+    font-family: 'Impact', 'Arial Black', sans-serif;
+    font-style: italic;
+    font-size: clamp(56px, 12vw, 120px);
+    line-height: 0.95;
+    color: transparent;
+    -webkit-text-stroke: 2px var(--pink);
+    text-shadow:
+      0 0 4px var(--pink),
+      0 0 10px var(--pink),
+      0 0 24px var(--pink-soft),
+      4px 4px 0 var(--cyan);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    transform: skewX(-8deg);
+  }
+  .title-block .underbar {
+    display: block;
+    width: 70%;
+    max-width: 400px;
+    margin: 14px auto 0;
+    height: 3px;
+    background: linear-gradient(90deg, transparent, var(--pink) 30%, var(--cyan) 70%, transparent);
+    box-shadow: 0 0 10px var(--pink), 0 0 20px var(--cyan);
+  }
+
+  /* Now-playing display */
+  .now-playing-box {
+    background: rgba(0, 0, 0, 0.55);
+    border: 2px solid var(--pink);
+    border-radius: 8px;
+    padding: 22px 28px;
+    margin-bottom: 32px;
+    text-align: center;
+    box-shadow:
+      0 0 14px var(--pink),
+      inset 0 0 14px rgba(255, 28, 247, 0.3);
+  }
+  .now-playing-box .label {
+    color: var(--cyan);
+    text-shadow: 0 0 6px var(--cyan);
+    letter-spacing: 0.4em;
+    font-size: 11px;
+    text-transform: uppercase;
+    margin: 0 0 8px;
+  }
+  .now-playing-box .track {
+    font-family: 'Impact', 'Arial Black', sans-serif;
+    font-size: clamp(28px, 5.5vw, 48px);
+    color: var(--text);
+    text-shadow: 0 0 12px var(--pink-soft);
+    letter-spacing: 0.04em;
+    margin: 0;
+    text-transform: uppercase;
+  }
+  .now-playing-box .next {
+    margin-top: 10px;
+    font-size: 13px;
+    color: var(--text-dim);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+
+  /* Section headings */
+  .neon-heading {
+    text-align: center;
+    margin: 36px 0 18px;
+    font-family: 'Impact', sans-serif;
+    color: var(--cyan);
+    text-shadow:
+      0 0 6px var(--cyan),
+      0 0 16px var(--cyan-soft);
+    letter-spacing: 0.3em;
+    font-size: 18px;
+    text-transform: uppercase;
+  }
+
+  /* Voting list — neon-bordered cells */
+  /* 2-col grid pairs each song-cell with its vote-count sibling — see drive-in template note. */
+  .voting_table {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+  }
+  .voting_table .cell-vote-playlist {
+    padding: 14px 18px;
+    background: rgba(0, 0, 0, 0.5);
+    border: 1px solid rgba(255, 28, 247, 0.4);
+    border-right: none;
+    color: var(--text);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px 14px;
+    font-size: 18px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    transition: all 0.15s;
+    min-width: 0;
+  }
+  .voting_table .cell-vote-playlist:hover {
+    background: rgba(255, 28, 247, 0.15);
+    border-color: var(--pink);
+    box-shadow: inset 0 0 16px rgba(255, 28, 247, 0.25);
+    color: #fff;
+  }
+  .voting_table .cell-vote {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 240, 255, 0.12);
+    border: 1px solid var(--cyan);
+    color: var(--cyan);
+    font-family: 'Impact', sans-serif;
+    font-size: 26px;
+    text-shadow: 0 0 8px var(--cyan-soft);
+    padding: 0 18px;
+    min-width: 64px;
+  }
+  .cell-vote-playlist-artist {
+    flex-basis: 100%;
+    font-size: 11px;
+    color: var(--cyan);
+    text-shadow: 0 0 4px var(--cyan-soft);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    margin: 0;
+  }
+
+  /* Jukebox grid — glowing tiles */
+  .jukebox_table {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 12px;
+  }
+  .jukebox-list {
+    background: rgba(0, 0, 0, 0.6);
+    border: 1px solid var(--cyan);
+    color: var(--text);
+    padding: 14px 16px;
+    cursor: pointer;
+    font-family: 'Impact', 'Arial Black', sans-serif;
+    font-size: 18px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    transition: all 0.15s;
+    box-shadow: 0 0 8px rgba(0, 240, 255, 0.3), inset 0 0 6px rgba(0, 240, 255, 0.1);
+  }
+  .jukebox-list:hover {
+    border-color: var(--pink);
+    color: var(--pink-soft);
+    text-shadow: 0 0 8px var(--pink);
+    box-shadow: 0 0 12px var(--pink), inset 0 0 12px rgba(255, 28, 247, 0.2);
+  }
+  .jukebox-list-artist {
+    display: block;
+    font-family: 'Helvetica Neue', sans-serif;
+    font-size: 11px;
+    color: var(--cyan);
+    text-shadow: 0 0 4px var(--cyan-soft);
+    letter-spacing: 0.18em;
+    margin-top: 3px;
+    font-style: normal;
+    text-transform: uppercase;
+  }
+  .sequence-image {
+    width: 32px; height: 32px;
+    object-fit: cover;
+    border: 1px solid var(--pink);
+    border-radius: 2px;
+    margin-right: 10px;
+    vertical-align: middle;
+    box-shadow: 0 0 6px var(--pink);
+  }
+
+  /* Queue block */
+  .queue-card {
+    background: rgba(0, 0, 0, 0.5);
+    border: 1px dashed var(--cyan);
+    padding: 16px 22px;
+    margin-top: 22px;
+    color: var(--text);
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    line-height: 1.8;
+  }
+  .queue-card .label {
+    color: var(--pink);
+    text-shadow: 0 0 6px var(--pink-soft);
+    letter-spacing: 0.3em;
+    font-family: 'Impact', sans-serif;
+    font-size: 12px;
+    margin-bottom: 8px;
+    text-transform: uppercase;
+  }
+
+  .footer {
+    text-align: center;
+    margin-top: 50px;
+    color: var(--text-dim);
+    font-size: 11px;
+    letter-spacing: 0.4em;
+    text-transform: uppercase;
+  }
+</style>
+</head>
+<body>
+  <div class="stage">
+    <header class="title-block">
+      <p class="pretitle">Tonight Only</p>
+      <h1>Light Show</h1>
+      <span class="underbar"></span>
+    </header>
+
+    <div class="now-playing-box">
+      <p class="label">▸ Now Playing ◂</p>
+      <p class="track">{NOW_PLAYING}</p>
+      <p class="next">Up Next: {NEXT_PLAYLIST}</p>
+    </div>
+
+    <div {playlist-voting-dynamic-container}>
+      <h2 class="neon-heading">⟪ Cast Your Vote ⟫</h2>
+      <div class="voting_table">{PLAYLISTS}</div>
+    </div>
+
+    <div {jukebox-dynamic-container}>
+      <h2 class="neon-heading">⟪ Pick the Next Track ⟫</h2>
+      <div class="jukebox_table">{PLAYLISTS}</div>
+      <div class="queue-card">
+        <p class="label">⌬ Queue ⌬</p>
+        {JUKEBOX_QUEUE}
+      </div>
+    </div>
+
+    <p class="footer">▮ ▮ ▮ &nbsp; Powered by ShowPilot &nbsp; ▮ ▮ ▮</p>
+  </div>
+
+  <div id="requestSuccessful" style="display:none;">▸ Request added.</div>
+  <div id="requestFailed" style="display:none;">▸ Try another.</div>
+  <div id="alreadyVoted" style="display:none;">▸ Already voted this round.</div>
+</body>
+</html>

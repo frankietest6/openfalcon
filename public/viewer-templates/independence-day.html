@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Independence Day Light Show</title>
+<style>
+  /* ============================================================
+     INDEPENDENCE DAY — patriotic red/white/blue theme
+     For 4th of July or Memorial Day light shows.
+  ============================================================ */
+  :root {
+    --navy: #0b1d4f;
+    --navy-deep: #050d2d;
+    --red: #b8202e;
+    --red-bright: #e63946;
+    --white: #fafafa;
+    --cream: #faf6e0;
+    --gold: #f4c430;
+    --shadow: rgba(0, 0, 0, 0.4);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    color: var(--white);
+    font-family: Georgia, 'Times New Roman', serif;
+    background: var(--navy-deep);
+    overflow-x: hidden;
+    position: relative;
+  }
+
+  /* Star field background */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      radial-gradient(2px 2px at 23px 47px, rgba(255,255,255,0.7), transparent 50%),
+      radial-gradient(1px 1px at 187px 132px, rgba(255,255,255,0.6), transparent 50%),
+      radial-gradient(1px 1px at 87px 251px, rgba(255,255,255,0.7), transparent 50%),
+      radial-gradient(2px 2px at 333px 91px, rgba(255,255,255,0.5), transparent 50%),
+      radial-gradient(1px 1px at 257px 311px, rgba(255,255,255,0.6), transparent 50%),
+      radial-gradient(2px 2px at 423px 397px, rgba(255,255,255,0.5), transparent 50%),
+      radial-gradient(1px 1px at 67px 173px, rgba(255,255,255,0.5), transparent 50%);
+    background-size: 480px 480px, 480px 480px, 480px 480px, 480px 480px, 480px 480px, 480px 480px, 480px 480px;
+    background-repeat: repeat;
+    opacity: 0.6;
+    z-index: 0;
+    pointer-events: none;
+  }
+
+  /* Firework bursts (CSS-only — animated via background-position) */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      radial-gradient(circle at 20% 30%, rgba(232, 57, 70, 0.08), transparent 30%),
+      radial-gradient(circle at 80% 25%, rgba(244, 196, 48, 0.08), transparent 30%),
+      radial-gradient(circle at 60% 70%, rgba(11, 29, 79, 0.4) 0%, transparent 50%);
+    z-index: 0;
+    pointer-events: none;
+    animation: fireworkPulse 6s ease-in-out infinite;
+  }
+  @keyframes fireworkPulse {
+    0%, 100% { opacity: 0.6; }
+    50%      { opacity: 1; }
+  }
+
+  .stage {
+    max-width: 920px;
+    margin: 0 auto;
+    padding: 36px 22px 60px;
+    position: relative;
+    z-index: 2;
+  }
+
+  /* Stripe banner across top */
+  .stripes-bar {
+    height: 12px;
+    background: repeating-linear-gradient(
+      90deg,
+      var(--red) 0,
+      var(--red) 40px,
+      var(--white) 40px,
+      var(--white) 80px
+    );
+    border-top: 2px solid var(--cream);
+    border-bottom: 2px solid var(--cream);
+    margin-bottom: 28px;
+    box-shadow: 0 4px 14px var(--shadow);
+  }
+
+  /* Main heading — like a colonial broadside */
+  .heading {
+    text-align: center;
+    margin-bottom: 32px;
+  }
+  .heading .preheading {
+    color: var(--gold);
+    font-style: italic;
+    font-size: 14px;
+    letter-spacing: 0.2em;
+    margin: 0 0 6px;
+    text-transform: uppercase;
+  }
+  .heading h1 {
+    font-family: 'Playfair Display', 'Times New Roman', serif;
+    margin: 0;
+    font-size: clamp(48px, 9vw, 84px);
+    line-height: 1;
+    color: var(--cream);
+    text-shadow: 0 4px 0 var(--red), 0 6px 16px var(--shadow);
+    letter-spacing: 0.02em;
+  }
+  .heading .stars {
+    margin-top: 8px;
+    color: var(--gold);
+    font-size: 22px;
+    letter-spacing: 0.4em;
+  }
+  .heading .underline {
+    margin-top: 4px;
+    color: var(--cream);
+    font-style: italic;
+    font-size: 14px;
+    letter-spacing: 0.05em;
+  }
+
+  /* Now-playing — wrapped like a flag-banner */
+  .banner {
+    background: linear-gradient(180deg, var(--navy), var(--navy-deep));
+    border: 3px solid var(--cream);
+    padding: 22px 28px;
+    margin-bottom: 32px;
+    text-align: center;
+    box-shadow: 0 8px 24px var(--shadow);
+    position: relative;
+  }
+  .banner::before, .banner::after {
+    content: '★';
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--gold);
+    font-size: 18px;
+    text-shadow: 0 0 8px var(--gold);
+  }
+  .banner::before { left: 12px; }
+  .banner::after { right: 12px; }
+  .banner .label {
+    color: var(--gold);
+    letter-spacing: 0.4em;
+    font-size: 11px;
+    margin: 0 0 6px;
+    text-transform: uppercase;
+    font-style: italic;
+  }
+  .banner .title {
+    font-family: 'Playfair Display', 'Times New Roman', serif;
+    font-size: clamp(26px, 5.5vw, 42px);
+    color: var(--cream);
+    margin: 0;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .banner .next {
+    margin-top: 10px;
+    color: var(--white);
+    font-size: 14px;
+    font-style: italic;
+    letter-spacing: 0.04em;
+  }
+
+  /* Section headings — like proclamations */
+  .proclamation {
+    text-align: center;
+    margin: 32px 0 18px;
+  }
+  .proclamation h2 {
+    display: inline-block;
+    font-family: 'Playfair Display', serif;
+    font-size: 24px;
+    margin: 0;
+    padding: 6px 20px;
+    color: var(--cream);
+    border-top: 3px double var(--gold);
+    border-bottom: 3px double var(--gold);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+
+  /* Voting list */
+  /* 2-col grid pairs each song-cell with its vote-count sibling — see drive-in template note. */
+  .voting_table {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 8px;
+  }
+  .voting_table .cell-vote-playlist {
+    background: rgba(11, 29, 79, 0.7);
+    border: 1px solid var(--cream);
+    border-right: none;
+    color: var(--cream);
+    padding: 14px 18px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 4px 14px;
+    font-family: 'Playfair Display', Georgia, serif;
+    font-size: 18px;
+    transition: all 0.15s;
+    min-width: 0;
+  }
+  .voting_table .cell-vote-playlist:hover {
+    background: rgba(184, 32, 46, 0.5);
+    border-color: var(--gold);
+  }
+  .voting_table .cell-vote {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--red);
+    color: var(--cream);
+    font-family: Georgia, serif;
+    font-weight: bold;
+    font-size: 26px;
+    border: 1px solid var(--red);
+    padding: 0 18px;
+    min-width: 64px;
+  }
+  .cell-vote-playlist-artist {
+    flex-basis: 100%;
+    font-style: italic;
+    font-size: 13px;
+    color: var(--gold);
+    margin: 0;
+  }
+
+  /* Jukebox — looks like flag cards */
+  .jukebox_table {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 10px;
+  }
+  .jukebox-list {
+    background: linear-gradient(180deg, var(--navy), rgba(11, 29, 79, 0.85));
+    border: 2px solid var(--cream);
+    color: var(--cream);
+    padding: 14px 18px;
+    cursor: pointer;
+    font-family: 'Playfair Display', Georgia, serif;
+    font-size: 18px;
+    transition: all 0.15s;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    box-shadow: 0 4px 12px var(--shadow);
+    position: relative;
+    overflow: hidden;
+  }
+  .jukebox-list::before {
+    content: '★';
+    position: absolute;
+    top: 6px; right: 10px;
+    color: var(--gold);
+    font-size: 14px;
+    opacity: 0.7;
+  }
+  .jukebox-list:hover {
+    border-color: var(--gold);
+    background: linear-gradient(180deg, var(--red), rgba(184, 32, 46, 0.85));
+  }
+  .jukebox-list-artist {
+    font-style: italic;
+    font-size: 13px;
+    color: var(--gold);
+  }
+  .sequence-image {
+    width: 36px; height: 36px;
+    object-fit: cover;
+    border: 2px solid var(--cream);
+    border-radius: 4px;
+    flex-shrink: 0;
+    margin-right: 10px;
+  }
+
+  /* Queue */
+  .queue-card {
+    background: rgba(11, 29, 79, 0.6);
+    border: 1px solid var(--gold);
+    border-radius: 4px;
+    padding: 16px 22px;
+    margin-top: 22px;
+    color: var(--cream);
+    font-family: Georgia, serif;
+    font-size: 14px;
+    line-height: 1.8;
+  }
+  .queue-card .label {
+    color: var(--gold);
+    font-family: 'Playfair Display', serif;
+    font-size: 14px;
+    letter-spacing: 0.2em;
+    margin-bottom: 6px;
+    text-transform: uppercase;
+  }
+
+  .footer {
+    text-align: center;
+    margin-top: 40px;
+    color: var(--gold);
+    font-size: 12px;
+    letter-spacing: 0.2em;
+    font-style: italic;
+  }
+
+  .stripes-bar.bottom { margin-top: 30px; margin-bottom: 16px; }
+</style>
+</head>
+<body>
+  <div class="stage">
+    <div class="stripes-bar"></div>
+
+    <header class="heading">
+      <p class="preheading">Tonight ★ Live ★ For You</p>
+      <h1>Stars &amp; Stripes</h1>
+      <div class="stars">★ ★ ★ ★ ★</div>
+      <p class="underline">A Light Show Spectacular</p>
+    </header>
+
+    <div class="banner">
+      <p class="label">Now Playing</p>
+      <h2 class="title">{NOW_PLAYING}</h2>
+      <p class="next">Coming up next: {NEXT_PLAYLIST}</p>
+    </div>
+
+    <div {playlist-voting-dynamic-container}>
+      <div class="proclamation"><h2>Cast Your Vote</h2></div>
+      <div class="voting_table">{PLAYLISTS}</div>
+    </div>
+
+    <div {jukebox-dynamic-container}>
+      <div class="proclamation"><h2>Pick the Next Anthem</h2></div>
+      <div class="jukebox_table">{PLAYLISTS}</div>
+      <div class="queue-card">
+        <p class="label">★ Up Next ★</p>
+        {JUKEBOX_QUEUE}
+      </div>
+    </div>
+
+    <div class="stripes-bar bottom"></div>
+    <p class="footer">★ ★ ★ &nbsp; Powered by ShowPilot &nbsp; ★ ★ ★</p>
+  </div>
+
+  <div id="requestSuccessful" style="display:none;">Request received — God bless!</div>
+  <div id="requestFailed" style="display:none;">Couldn't add that — try another.</div>
+  <div id="alreadyVoted" style="display:none;">You've already voted this round.</div>
+</body>
+</html>
