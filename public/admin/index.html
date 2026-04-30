@@ -1824,7 +1824,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.32.4</span>
+        <span class="app-version">v0.32.5</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -2774,6 +2774,24 @@
               <span class="muted" style="font-size: 0.8rem;">— typically smaller than the interaction radius</span>
             </div>
             </div>
+
+            <h3 style="margin-top: 1.5rem;">External audio access</h3>
+            <p class="muted" style="font-size: 0.85rem; margin: 0 0 0.75rem;">
+              Listeners on cellular or away from your home network can't reach your local IP.
+              Set your public domain so the player automatically falls back to it for external listeners.
+              Local listeners still use the direct path for best performance.
+            </p>
+            <div>
+              <label for="cfg_public_base_url">Public base URL (your domain)</label>
+              <input type="text" id="cfg_public_base_url"
+                     placeholder="https://yourdomain.com"
+                     onchange="saveSetting('public_base_url', this.value.trim())"
+                     style="width: 100%; max-width: 400px;" />
+              <p class="muted" style="font-size: 0.8rem; margin: 0.4rem 0 0;">
+                The full URL where this ShowPilot instance is publicly reachable.
+                Leave blank to disable external access.
+              </p>
+            </div>
           </div>
 
           <!-- APP — PWA install controls for admin & viewer -->
@@ -3104,28 +3122,8 @@
           </div>
         </div>
 
-        <div class="card">
-          <h2>External Audio Access</h2>
-          <p class="muted" style="font-size: 0.9rem; margin: 0.5rem 0 1rem;">
-            Listeners on cellular or away from your home network can't reach your local IP.
-            Set your public domain so the player automatically falls back to it for external listeners.
-            Local listeners still use the direct path for best performance.
-          </p>
-          <div>
-            <label for="cfg_public_base_url">Public base URL (your domain)</label>
-            <input type="text" id="cfg_public_base_url"
-                   placeholder="https://yourdomain.com"
-                   onchange="saveSetting('public_base_url', this.value.trim())"
-                   style="width: 100%; max-width: 400px;" />
-            <p class="muted" style="font-size: 0.8rem; margin: 0.4rem 0 0;">
-              The full URL where this ShowPilot instance is publicly reachable.
-              Leave blank to disable external access.
-            </p>
-          </div>
-        </div>
-
-        <!-- BACKUP & RESTORE pane is inside the Settings card above
-             (right before the External Audio Access card). -->
+        <!-- BACKUP & RESTORE pane is inside the Settings card above. -->
+        <!-- External Audio Access lives inside the Audio sub-tab. -->
       </div>
 
       <!-- ============================================================
@@ -7183,15 +7181,22 @@
             <input type="text" value="${escapeAttr(value || '')}"
                    oninput="updateBlockProp(${idx}, '${escapeAttr(key)}', this.value)" />`;
         }).join('');
+        // Only the header is draggable, not the whole card. Earlier versions
+        // had draggable="true" on the card, which made the browser's native
+        // drag-handler intercept click-and-drag inside any input/textarea
+        // in the card body — users couldn't select text in fields. Making
+        // just the header draggable keeps reordering working (the header
+        // is the obvious "grab handle") while leaving form fields native.
         return `
-          <div class="of-block-card" draggable="true"
+          <div class="of-block-card"
                data-block-idx="${idx}"
-               ondragstart="blockDragStart(event, ${idx})"
                ondragover="blockDragOver(event)"
                ondragleave="blockDragLeave(event)"
-               ondrop="blockDrop(event, ${idx})"
-               ondragend="blockDragEnd(event)">
-            <div class="of-block-card-header" onclick="toggleBlockExpanded(${idx})">
+               ondrop="blockDrop(event, ${idx})">
+            <div class="of-block-card-header" draggable="true"
+                 ondragstart="blockDragStart(event, ${idx})"
+                 ondragend="blockDragEnd(event)"
+                 onclick="toggleBlockExpanded(${idx})">
               <span class="of-block-handle">⋮⋮</span>
               <span class="of-block-title">${escapeHtml(label)}</span>
               <span class="of-block-actions" onclick="event.stopPropagation();">
@@ -7212,10 +7217,22 @@
     function escapeAttr(s) { return escapeHtml(s).replace(/'/g, '&#39;'); }
 
     // ---- Drag & drop block reorder ----
+    // Drag is initiated from the .of-block-card-header (only the header is
+    // draggable, see comment in the render function). The visual drag
+    // image is the parent card, set via setDragImage so the user sees the
+    // whole block move, not just the header strip.
     let _blockDragSrc = null;
     function blockDragStart(e, idx) {
       _blockDragSrc = idx;
-      e.target.classList.add('dragging');
+      const card = e.currentTarget.closest('.of-block-card');
+      if (card) {
+        card.classList.add('dragging');
+        // Use the card as the drag image so the whole block looks like it's
+        // being moved. Offset by the cursor's position within the card so
+        // the image stays under the cursor naturally.
+        const r = card.getBoundingClientRect();
+        try { e.dataTransfer.setDragImage(card, e.clientX - r.left, e.clientY - r.top); } catch {}
+      }
       e.dataTransfer.effectAllowed = 'move';
     }
     function blockDragOver(e) {
@@ -7233,7 +7250,8 @@
       _blockDragSrc = null;
     }
     function blockDragEnd(e) {
-      e.target.classList.remove('dragging');
+      const card = e.currentTarget.closest('.of-block-card');
+      if (card) card.classList.remove('dragging');
       document.querySelectorAll('.of-block-card.drag-over').forEach(el => el.classList.remove('drag-over'));
       _blockDragSrc = null;
     }
