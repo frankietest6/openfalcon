@@ -191,6 +191,7 @@ router.put('/config', requireAdmin, (req, res) => {
     'block_request_next_up',
     // Voting safeguards
     'prevent_multiple_votes',
+    'allow_vote_change',
     'reset_votes_after_round',
     'tiebreak_enabled',
     'tiebreak_duration_sec',

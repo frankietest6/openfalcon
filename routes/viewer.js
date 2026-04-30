@@ -246,6 +246,9 @@ router.get('/state', (req, res) => {
     voteCounts,
     queue,
     requiresLocation: cfg.check_viewer_present === 1 && cfg.viewer_present_mode === 'GPS',
+    // Vote shifting (v0.32.6+): mirror of bootstrap allowVoteChange so an
+    // admin toggling this mid-show propagates to viewers without a reload.
+    allowVoteChange: cfg.allow_vote_change === 1,
     // Current voting round id. Viewers track this so they can detect a
     // round change (server advanced past their last vote) and clear
     // their local hasVoted flag. This is the "last-write-wins" backup
@@ -331,23 +334,65 @@ router.post('/vote', (req, res) => {
 
   const token = ensureViewerToken(req, res);
 
+  // Vote shifting (v0.32.6+):
+  // When prevent_multiple_votes=1 AND allow_vote_change=1, a second vote in
+  // the same round REPLACES the user's prior vote. Same effective limit (one
+  // vote per viewer per round), just lets them change their mind. We track
+  // whether this was an insert or a shift so the client can show appropriate
+  // feedback ("Vote changed!" vs. "Vote cast!"), and so we don't double-count
+  // for PSA interaction tracking — a shift is still ONE interaction.
+  let shifted = false;
+  let sameVote = false;
   if (cfg.prevent_multiple_votes) {
-    const already = db.prepare(
-      `SELECT 1 FROM votes WHERE viewer_token = ? AND round_id = ? LIMIT 1`
+    const prior = db.prepare(
+      `SELECT id, sequence_name FROM votes WHERE viewer_token = ? AND round_id = ? LIMIT 1`
     ).get(token, cfg.current_voting_round);
-    if (already) return res.status(409).json({ error: 'You have already voted this round' });
+    if (prior) {
+      if (!cfg.allow_vote_change) {
+        return res.status(409).json({ error: 'You have already voted this round' });
+      }
+      // Vote-change is on. If the user clicked the same song they already
+      // voted for, treat as a no-op (don't churn the row, don't emit a
+      // misleading "vote changed" signal). Otherwise atomically swap.
+      if (prior.sequence_name === seq.name) {
+        sameVote = true;
+      } else {
+        // Atomic delete-then-insert in a transaction so concurrent voteUpdate
+        // emissions never see "user has zero votes mid-shift."
+        const swap = db.transaction(() => {
+          db.prepare(`DELETE FROM votes WHERE id = ?`).run(prior.id);
+          db.prepare(`
+            INSERT INTO votes (sequence_id, sequence_name, viewer_token, round_id)
+            VALUES (?, ?, ?, ?)
+          `).run(seq.id, seq.name, token, cfg.current_voting_round);
+        });
+        try {
+          swap();
+        } catch (e) {
+          if (String(e.message).includes('UNIQUE')) {
+            // Shouldn't happen — we just deleted the conflicting row in the
+            // same txn — but handle defensively.
+            return res.status(409).json({ error: 'Vote conflict, please retry' });
+          }
+          throw e;
+        }
+        shifted = true;
+      }
+    }
   }
 
-  try {
-    db.prepare(`
-      INSERT INTO votes (sequence_id, sequence_name, viewer_token, round_id)
-      VALUES (?, ?, ?, ?)
-    `).run(seq.id, seq.name, token, cfg.current_voting_round);
-  } catch (e) {
-    if (String(e.message).includes('UNIQUE')) {
-      return res.status(409).json({ error: 'You have already voted this round' });
+  if (!shifted && !sameVote) {
+    try {
+      db.prepare(`
+        INSERT INTO votes (sequence_id, sequence_name, viewer_token, round_id)
+        VALUES (?, ?, ?, ?)
+      `).run(seq.id, seq.name, token, cfg.current_voting_round);
+    } catch (e) {
+      if (String(e.message).includes('UNIQUE')) {
+        return res.status(409).json({ error: 'You have already voted this round' });
+      }
+      throw e;
     }
-    throw e;
   }
 
   // Diagnostic logging — emitted at info level so it shows up in pm2 logs.
@@ -361,12 +406,17 @@ router.post('/vote', (req, res) => {
     const totalForSeq = db.prepare(
       `SELECT COUNT(*) AS n FROM votes WHERE sequence_name = ? AND round_id = ?`
     ).get(seq.name, cfg.current_voting_round).n;
-    console.log(`[vote] seq="${seq.name}" round=${cfg.current_voting_round} token=${(token||'').slice(0,8)} → seq_total=${totalForSeq} round_total=${totalForRound}`);
+    const action = sameVote ? 'same' : (shifted ? 'shift' : 'insert');
+    console.log(`[vote:${action}] seq="${seq.name}" round=${cfg.current_voting_round} token=${(token||'').slice(0,8)} → seq_total=${totalForSeq} round_total=${totalForRound}`);
   } catch (e) {
     console.warn('[vote] diagnostic logging failed:', e.message);
   }
 
-  db.prepare(`UPDATE config SET interactions_since_last_psa = interactions_since_last_psa + 1 WHERE id = 1`).run();
+  // Don't double-count for PSA on a shift — it's the same user changing their
+  // mind, not a new interaction. Same-vote no-op also doesn't count.
+  if (!shifted && !sameVote) {
+    db.prepare(`UPDATE config SET interactions_since_last_psa = interactions_since_last_psa + 1 WHERE id = 1`).run();
+  }
 
   const io = req.app.get('io');
   if (io) {
@@ -376,7 +426,7 @@ router.post('/vote', (req, res) => {
     io.emit('voteUpdate', { counts });
   }
 
-  res.json({ ok: true });
+  res.json({ ok: true, shifted, sameVote });
 });
 
 // ============================================================

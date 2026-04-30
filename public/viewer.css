@@ -113,6 +113,15 @@ h3 {
   cursor: not-allowed;
 }
 
+/* v0.32.6+: highlight the song the viewer voted for. Used when vote
+   shifting is enabled — buttons stay enabled so the user can click a
+   different song, and this style makes their current pick obvious. */
+.sequence-list button.voted {
+  background: rgba(196, 181, 253, 0.18);
+  border-color: rgba(196, 181, 253, 0.6);
+  box-shadow: 0 0 0 2px rgba(196, 181, 253, 0.25);
+}
+
 .vote-count {
   background: rgba(196, 181, 253, 0.2);
   padding: 0.2rem 0.6rem;
