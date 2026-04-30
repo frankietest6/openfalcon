@@ -272,6 +272,49 @@
     font-size: 11px;
     letter-spacing: 0.2em;
   }
+
+  /* ============================================================
+     TOAST — see drive-in.html for the rationale.
+  ============================================================ */
+  .toast {
+    display: none;
+    position: fixed;
+    top: 18px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10000;
+    max-width: min(480px, calc(100vw - 32px));
+    padding: 12px 22px;
+    border-radius: 4px;
+    font-family: 'Helvetica Neue', sans-serif;
+    font-weight: bold;
+    font-size: 15px;
+    letter-spacing: 0.04em;
+    text-align: center;
+    cursor: pointer;
+    box-shadow: 0 6px 22px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.15);
+    animation: toastDrop 0.3s ease-out;
+  }
+  @keyframes toastDrop {
+    0%   { transform: translate(-50%, -16px); opacity: 0; }
+    100% { transform: translate(-50%, 0);     opacity: 1; }
+  }
+  .toast.success {
+    background: var(--green-led);
+    color: var(--bg);
+    border: 2px solid var(--gold);
+  }
+  .toast.error {
+    background: var(--red);
+    color: var(--cream);
+    border: 2px solid var(--gold);
+    text-shadow: 0 1px 2px rgba(0,0,0,0.4);
+  }
+  .toast.info {
+    background: var(--gold);
+    color: var(--bg);
+    border: 2px solid var(--gold-soft);
+  }
 </style>
 </head>
 <body>
@@ -299,18 +342,23 @@
 
     <div {jukebox-dynamic-container}>
       <h2 class="booth-heading">Request Line is Open</h2>
-      <div class="jukebox_table">{PLAYLISTS}</div>
       <div class="queue-card">
         <p class="label">Request Log</p>
         {JUKEBOX_QUEUE}
       </div>
+      <div class="jukebox_table">{PLAYLISTS}</div>
     </div>
 
     <p class="footer">WSPL ★ Broadcasting tonight ★ Powered by ShowPilot</p>
   </div>
 
-  <div id="requestSuccessful" style="display:none;">Request received — thanks for calling in!</div>
-  <div id="requestFailed" style="display:none;">Couldn't take that request right now.</div>
-  <div id="alreadyVoted" style="display:none;">You already voted this round.</div>
+  <!-- ShowPilot UI feedback toasts (hidden by default; rf-compat flips display when triggered) -->
+  <div id="requestSuccessful" class="toast success">📻 Request received — thanks for calling in!</div>
+  <div id="voteSuccessful"    class="toast success">🗳️ Vote logged on air.</div>
+  <div id="requestFailed"     class="toast error">Couldn't take that request right now.</div>
+  <div id="alreadyVoted"      class="toast error">You already voted this round.</div>
+  <div id="requestPlaying"    class="toast info">That track is already in rotation.</div>
+  <div id="queueFull"         class="toast error">Request line is full — try again shortly.</div>
+  <div id="invalidLocation"   class="toast info">Location required to call in.</div>
 </body>
 </html>

@@ -283,6 +283,53 @@
     font-size: 11px;
     letter-spacing: 0.2em;
   }
+
+  /* ============================================================
+     TOAST — feedback messages from rf-compat (request added,
+     vote registered, queue full, etc.). rf-compat only toggles
+     display:block on these divs; the template controls placement.
+     We anchor at the top of the viewport so messages don't appear
+     past the footer on a long page.
+  ============================================================ */
+  .toast {
+    display: none; /* rf-compat flips to block when triggered */
+    position: fixed;
+    top: 18px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10000;
+    max-width: min(480px, calc(100vw - 32px));
+    padding: 12px 22px;
+    border-radius: 4px;
+    font-family: 'Impact', 'Arial Black', sans-serif;
+    font-size: 18px;
+    letter-spacing: 0.06em;
+    text-align: center;
+    cursor: pointer; /* rf-compat binds tap-to-dismiss */
+    box-shadow: 0 6px 22px rgba(0,0,0,0.55);
+    animation: toastDrop 0.3s ease-out;
+  }
+  @keyframes toastDrop {
+    0%   { transform: translate(-50%, -16px); opacity: 0; }
+    100% { transform: translate(-50%, 0);     opacity: 1; }
+  }
+  .toast.success {
+    background: var(--marquee);
+    color: var(--dark);
+    border: 2px solid var(--marquee-glow);
+    text-shadow: 0 0 4px var(--marquee-glow);
+  }
+  .toast.error {
+    background: var(--neon-red);
+    color: #fff;
+    border: 2px solid var(--neon-red-glow);
+    text-shadow: 0 0 6px var(--neon-red-glow);
+  }
+  .toast.info {
+    background: var(--cream);
+    color: var(--dark);
+    border: 2px solid var(--marquee);
+  }
 </style>
 </head>
 <body>
@@ -308,19 +355,23 @@
 
     <div {jukebox-dynamic-container}>
       <div class="billboard-heading"><h2>Pick the Next Show</h2></div>
-      <div class="jukebox_table">{PLAYLISTS}</div>
       <div class="queue-card">
         <p class="label">Coming Up Next</p>
         {JUKEBOX_QUEUE}
       </div>
+      <div class="jukebox_table">{PLAYLISTS}</div>
     </div>
 
     <p class="footer">★ ★ ★ &nbsp; A SHOWPILOT PRESENTATION &nbsp; ★ ★ ★</p>
   </div>
 
-  <!-- ShowPilot UI feedback elements (hidden by default; rf-compat shows when needed) -->
-  <div id="requestSuccessful" style="display:none;">Request added to the queue!</div>
-  <div id="requestFailed" style="display:none;">Couldn't add that one — try another.</div>
-  <div id="alreadyVoted" style="display:none;">You've already voted this round.</div>
+  <!-- ShowPilot UI feedback toasts (hidden by default; rf-compat flips display when triggered) -->
+  <div id="requestSuccessful" class="toast success">Request added to the queue! 🎬</div>
+  <div id="voteSuccessful"    class="toast success">Vote cast — thanks for joining the show! 🗳️</div>
+  <div id="requestFailed"     class="toast error">Couldn't add that one — try another.</div>
+  <div id="alreadyVoted"      class="toast error">You've already voted this round.</div>
+  <div id="requestPlaying"    class="toast info">That song is already up next.</div>
+  <div id="queueFull"         class="toast error">The queue is full. Try again in a few.</div>
+  <div id="invalidLocation"   class="toast info">Location required to vote or request.</div>
 </body>
 </html>

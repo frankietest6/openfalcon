@@ -321,6 +321,51 @@
     letter-spacing: 0.4em;
     text-transform: uppercase;
   }
+
+  /* ============================================================
+     TOAST — see drive-in.html for the rationale. Phosphor-glow
+     styling matches the rest of the CRT theme.
+  ============================================================ */
+  .toast {
+    display: none;
+    position: fixed;
+    top: 18px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10000;
+    max-width: min(480px, calc(100vw - 32px));
+    padding: 12px 22px;
+    background: rgba(0, 25, 27, 0.95);
+    font-family: 'Courier New', monospace;
+    font-size: 15px;
+    letter-spacing: 0.06em;
+    text-align: center;
+    cursor: pointer;
+    box-shadow: 0 6px 22px rgba(0,0,0,0.7);
+    animation: toastDrop 0.3s ease-out;
+  }
+  @keyframes toastDrop {
+    0%   { transform: translate(-50%, -16px); opacity: 0; }
+    100% { transform: translate(-50%, 0);     opacity: 1; }
+  }
+  .toast.success {
+    color: var(--phosphor);
+    border: 1px solid var(--phosphor);
+    text-shadow: 0 0 8px var(--phosphor);
+    box-shadow: 0 0 14px rgba(93, 255, 177, 0.4), 0 6px 22px rgba(0,0,0,0.7);
+  }
+  .toast.error {
+    color: var(--warning);
+    border: 1px solid var(--warning);
+    text-shadow: 0 0 8px var(--warning);
+    box-shadow: 0 0 14px rgba(255, 80, 80, 0.4), 0 6px 22px rgba(0,0,0,0.7);
+  }
+  .toast.info {
+    color: var(--amber);
+    border: 1px solid var(--amber);
+    text-shadow: 0 0 8px var(--amber);
+    box-shadow: 0 0 14px rgba(255, 184, 77, 0.4), 0 6px 22px rgba(0,0,0,0.7);
+  }
 </style>
 </head>
 <body>
@@ -346,18 +391,23 @@
 
     <div {jukebox-dynamic-container}>
       <h2 class="crt-heading">Channel Selection</h2>
-      <div class="jukebox_table">{PLAYLISTS}</div>
       <div class="queue-card">
         <p class="label">Broadcast Queue</p>
         {JUKEBOX_QUEUE}
       </div>
+      <div class="jukebox_table">{PLAYLISTS}</div>
     </div>
 
     <p class="footer">— END OF TRANSMISSION —</p>
   </div>
 
-  <div id="requestSuccessful" style="display:none;">Signal received.</div>
-  <div id="requestFailed" style="display:none;">Transmission failed.</div>
-  <div id="alreadyVoted" style="display:none;">Vote already on file.</div>
+  <!-- ShowPilot UI feedback toasts (hidden by default; rf-compat flips display when triggered) -->
+  <div id="requestSuccessful" class="toast success">▸ SIGNAL RECEIVED</div>
+  <div id="voteSuccessful"    class="toast success">▸ VOTE LOGGED</div>
+  <div id="requestFailed"     class="toast error">▸ TRANSMISSION FAILED</div>
+  <div id="alreadyVoted"      class="toast error">▸ VOTE ALREADY ON FILE</div>
+  <div id="requestPlaying"    class="toast info">▸ ALREADY IN QUEUE</div>
+  <div id="queueFull"         class="toast error">▸ QUEUE BUFFER FULL</div>
+  <div id="invalidLocation"   class="toast info">▸ LOCATION SIGNAL REQUIRED</div>
 </body>
 </html>

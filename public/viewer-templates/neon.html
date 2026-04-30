@@ -285,6 +285,52 @@
     letter-spacing: 0.4em;
     text-transform: uppercase;
   }
+
+  /* ============================================================
+     TOAST — see drive-in.html for the rationale.
+  ============================================================ */
+  .toast {
+    display: none;
+    position: fixed;
+    top: 18px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10000;
+    max-width: min(480px, calc(100vw - 32px));
+    padding: 12px 22px;
+    border-radius: 6px;
+    font-family: 'Impact', 'Arial Black', sans-serif;
+    font-size: 16px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    text-align: center;
+    cursor: pointer;
+    background: rgba(0, 0, 0, 0.85);
+    box-shadow: 0 6px 22px rgba(0,0,0,0.55);
+    animation: toastDrop 0.3s ease-out;
+  }
+  @keyframes toastDrop {
+    0%   { transform: translate(-50%, -16px); opacity: 0; }
+    100% { transform: translate(-50%, 0);     opacity: 1; }
+  }
+  .toast.success {
+    color: var(--cyan);
+    border: 1px solid var(--cyan);
+    text-shadow: 0 0 8px var(--cyan-soft);
+    box-shadow: 0 0 18px var(--cyan), 0 6px 22px rgba(0,0,0,0.55);
+  }
+  .toast.error {
+    color: var(--pink);
+    border: 1px solid var(--pink);
+    text-shadow: 0 0 8px var(--pink-soft);
+    box-shadow: 0 0 18px var(--pink), 0 6px 22px rgba(0,0,0,0.55);
+  }
+  .toast.info {
+    color: var(--yellow);
+    border: 1px solid var(--yellow);
+    text-shadow: 0 0 8px var(--yellow);
+    box-shadow: 0 0 14px var(--yellow), 0 6px 22px rgba(0,0,0,0.55);
+  }
 </style>
 </head>
 <body>
@@ -308,18 +354,23 @@
 
     <div {jukebox-dynamic-container}>
       <h2 class="neon-heading">⟪ Pick the Next Track ⟫</h2>
-      <div class="jukebox_table">{PLAYLISTS}</div>
       <div class="queue-card">
         <p class="label">⌬ Queue ⌬</p>
         {JUKEBOX_QUEUE}
       </div>
+      <div class="jukebox_table">{PLAYLISTS}</div>
     </div>
 
     <p class="footer">▮ ▮ ▮ &nbsp; Powered by ShowPilot &nbsp; ▮ ▮ ▮</p>
   </div>
 
-  <div id="requestSuccessful" style="display:none;">▸ Request added.</div>
-  <div id="requestFailed" style="display:none;">▸ Try another.</div>
-  <div id="alreadyVoted" style="display:none;">▸ Already voted this round.</div>
+  <!-- ShowPilot UI feedback toasts (hidden by default; rf-compat flips display when triggered) -->
+  <div id="requestSuccessful" class="toast success">▸ Request added.</div>
+  <div id="voteSuccessful"    class="toast success">▸ Vote registered.</div>
+  <div id="requestFailed"     class="toast error">▸ Try another.</div>
+  <div id="alreadyVoted"      class="toast error">▸ Already voted this round.</div>
+  <div id="requestPlaying"    class="toast info">▸ Already up next — pick another.</div>
+  <div id="queueFull"         class="toast error">▸ Queue full.</div>
+  <div id="invalidLocation"   class="toast info">▸ Location required.</div>
 </body>
 </html>
