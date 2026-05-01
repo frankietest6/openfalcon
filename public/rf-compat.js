@@ -417,8 +417,12 @@
   function applyStateUpdate(data) {
     // --- Vote counts ---
     if (data.voteCounts) {
+      // Two attributes carry the count per row: [data-seq-count] on the
+      // canonical-RF .cell-vote element, and [data-seq-votes] on the
+      // RF Page Builder .sequence-votes span. Templates may style either
+      // (or both), so live updates must hit both.
       // First clear all existing counts to 0 so a removed vote drops visibly
-      const allCells = document.querySelectorAll('[data-seq-count]');
+      const allCells = document.querySelectorAll('[data-seq-count], [data-seq-votes]');
       allCells.forEach(el => {
         el.textContent = '0';
       });
@@ -437,7 +441,7 @@
       // we can update all of them correctly.
       const cellsByName = {};
       allCells.forEach(el => {
-          const n = el.getAttribute('data-seq-count');
+          const n = el.getAttribute('data-seq-count') || el.getAttribute('data-seq-votes');
           if (n) {
               if (!cellsByName[n]) cellsByName[n] = [];
               cellsByName[n].push(el);
