@@ -520,6 +520,27 @@
       if (nowEl.textContent !== nowDisplay) nowEl.textContent = nowDisplay;
     }
 
+    // --- NOW_PLAYING_IMAGE (v0.32.13+) ---
+    // Updates any <img data-showpilot-now-img> elements when the playing
+    // song changes. Hides the image when no song is playing, or when the
+    // current song has no cover art (image_url empty / null on the
+    // sequence row).
+    const nowImgEls = document.querySelectorAll('[data-showpilot-now-img]');
+    if (nowImgEls.length) {
+      const nowSeq = data.nowPlaying
+        ? (data.sequences || []).find(s => s.name === data.nowPlaying)
+        : null;
+      const nowImgUrl = nowSeq && nowSeq.image_url ? nowSeq.image_url : '';
+      nowImgEls.forEach(el => {
+        if (nowImgUrl) {
+          if (el.getAttribute('src') !== nowImgUrl) el.setAttribute('src', nowImgUrl);
+          if (el.style.display === 'none') el.style.display = '';
+        } else {
+          el.style.display = 'none';
+        }
+      });
+    }
+
     // --- NEXT_PLAYLIST text (RF templates use .body_text inside the jukebox container) ---
     // We can't reliably pick "the right" .body_text element without a data attribute,
     // so we tag it during render-time. Fall back: leave it alone.
@@ -542,13 +563,17 @@
     if (queueListEl) {
       const byName = Object.fromEntries((data.sequences || []).map(s => [s.name, s]));
       if ((data.queue || []).length === 0) {
-        queueListEl.textContent = 'Queue is empty.';
+        // Match the server-side renderQueue empty-state shape (v0.32.13+).
+        queueListEl.innerHTML = '<div class="queue-empty">Queue is empty.</div>';
       } else {
+        // Match the server-side renderQueue shape: each entry is its own
+        // <div class="queue-item"> so RF Page Builder's `.queue-list > div`
+        // selector matches.
         queueListEl.innerHTML = data.queue.map(e => {
           const seq = byName[e.sequence_name];
           const name = seq ? seq.display_name : e.sequence_name;
-          return escapeHtml(name);
-        }).join('<br />');
+          return `<div class="queue-item" data-seq="${escapeAttr(e.sequence_name)}">${escapeHtml(name)}</div>`;
+        }).join('');
       }
     }
 
