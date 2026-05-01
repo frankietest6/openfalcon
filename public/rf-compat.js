@@ -428,14 +428,24 @@
       // match — getAttribute returns the un-escaped value, so a direct
       // string compare always works regardless of how the attribute was
       // serialized in the HTML.
-      const cellByName = {};
+
+      // (array map, updates all matching elements). This is to fix a bug
+      // where votes for songs are rendered on the first instance of the
+      // voting div for a song only. There are 2 instances of those divs
+      // (one for jukebox mode, one for voting mode) and the counts only
+      // update on the first one. By building a map of all cells by name,
+      // we can update all of them correctly.
+      const cellsByName = {};
       allCells.forEach(el => {
-        const n = el.getAttribute('data-seq-count');
-        if (n) cellByName[n] = el;
+          const n = el.getAttribute('data-seq-count');
+          if (n) {
+              if (!cellsByName[n]) cellsByName[n] = [];
+              cellsByName[n].push(el);
+          }
       });
       data.voteCounts.forEach(v => {
-        const el = cellByName[v.sequence_name];
-        if (el) el.textContent = String(v.count);
+          const els = cellsByName[v.sequence_name];
+          if (els) els.forEach(el => { el.textContent = String(v.count); });
       });
     }
 
