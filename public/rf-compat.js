@@ -614,6 +614,12 @@
     document.querySelectorAll('[data-showpilot-container="voting"], [data-openfalcon-container="voting"]').forEach(el => {
       el.style.display = data.viewerControlMode === 'VOTING' ? '' : 'none';
     });
+    // After-hours: visible when viewer control is OFF. Mirror of the server-side
+    // logic in viewer-renderer.js, so flipping the admin "Off" toggle propagates
+    // to viewers within one poll without requiring a reload.
+    document.querySelectorAll('[data-showpilot-container="afterhours"]').forEach(el => {
+      el.style.display = data.viewerControlMode === 'OFF' ? '' : 'none';
+    });
   }
 
   function escapeHtml(s) {
