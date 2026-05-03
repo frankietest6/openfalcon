@@ -3478,15 +3478,37 @@
       if (name === 'settings') refreshAudioCacheStats();
     }
 
+    //Copy token works for https but fails for http, call fallbackCopy
     function copyShowToken() {
-      const t = document.getElementById('showToken').textContent;
+      const t = document.getElementById('showToken').textContent.trim();
       if (!t || t === '—') return;
-      navigator.clipboard.writeText(t).then(() => {
-        const s = document.getElementById('copyTokenStatus');
-        s.textContent = '✓ Copied to clipboard';
-        s.style.color = 'var(--status-success)';
-        setTimeout(() => { s.textContent = ''; }, 2000);
-      });
+      const s = document.getElementById('copyTokenStatus');
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(t).then(() => {
+          s.textContent = '✓ Copied to clipboard';
+          s.style.color = 'var(--status-success)';
+          setTimeout(() => { s.textContent = ''; }, 2000);
+        }).catch(() => fallbackCopy(t, s));
+      } else {
+        fallbackCopy(t, s);
+      }
+    }
+
+    function fallbackCopy(text, s) {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';   // avoid scrolling
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      try {
+        document.execCommand('copy');
+        console.log('Copied via fallback!');
+      } catch (err) {
+        console.error('Fallback copy failed:', err);
+      }
+      document.body.removeChild(textarea);
     }
 
     // ============================================================
