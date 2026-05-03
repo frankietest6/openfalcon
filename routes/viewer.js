@@ -8,7 +8,7 @@ const express = require('express');
 const crypto = require('crypto');
 const router = express.Router();
 const config = require('../lib/config-loader');
-const { db, getConfig, getNowPlaying, getActiveViewerCount, getSequenceByName, castTiebreakVote } = require('../lib/db');
+const { db, getConfig, getNowPlaying, getActiveViewerCount, getSequenceByName, castTiebreakVote, getNextUp } = require('../lib/db');
 const { bustCoverUrl } = require('../lib/cover-art');
 
 function ensureViewerToken(req, res) {
@@ -219,23 +219,7 @@ router.get('/state', (req, res) => {
   const nowPlayingName = nowPlaying.sequence_name || null;
   const queue = queueAll.filter(q => q.sequence_name !== nowPlayingName);
 
-  // "Next up" priority order:
-  //   1. JUKEBOX mode + queue has entries (after now-playing) → first queued
-  //   2. VOTING mode + votes cast → highest-voted song
-  //   3. Otherwise → whatever the schedule says
-  let nextUp = nowPlaying.next_sequence_name || null;
-  if (cfg.viewer_control_mode === 'JUKEBOX' && queue.length > 0) {
-    nextUp = queue[0].sequence_name;
-  } else if (cfg.viewer_control_mode === 'VOTING') {
-    const top = db.prepare(`
-      SELECT sequence_name, COUNT(*) AS n FROM votes
-      WHERE round_id = ?
-      GROUP BY sequence_name
-      ORDER BY n DESC
-      LIMIT 1
-    `).get(cfg.current_voting_round);
-    if (top) nextUp = top.sequence_name;
-  }
+  const nextUp = getNextUp(cfg, nowPlayingName);
 
   // Now-playing timer support (v0.32.9+):
   // The {NOW_PLAYING_TIMER} placeholder in viewer templates needs two

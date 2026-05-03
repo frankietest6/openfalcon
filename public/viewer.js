@@ -263,6 +263,7 @@
       }
     });
     socket.on('queueUpdated', () => { fetchState(); });
+    socket.on('nextScheduled', () => { fetchState(); });
     socket.on('viewerCount', (data) => { el('viewerCount').textContent = data.count || 0; });
   } catch (e) {
     console.warn('Socket.io unavailable; falling back to polling.');

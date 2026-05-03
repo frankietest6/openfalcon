@@ -367,7 +367,7 @@ app.get('/viewer-manifest.json', (req, res) => {
 app.get('/', (req, res) => {
   try {
     const { renderTemplate, getActiveTemplate } = require('./lib/viewer-renderer');
-    const { db, getConfig, getNowPlaying } = require('./lib/db');
+    const { db, getConfig, getNowPlaying, getNextUp } = require('./lib/db');
     const { logVisit } = require('./lib/visit-tracking');
 
     // Log this visit for analytics (skips bots and preview-mode requests).
@@ -458,7 +458,7 @@ app.get('/', (req, res) => {
       voteCounts,
       queue,
       nowPlaying: nowPlaying.sequence_name,
-      nextScheduled: nowPlaying.next_sequence_name,
+      nextScheduled: getNextUp(cfg, nowPlaying.sequence_name || null),
       nowPlayingStartedAtIso,
       nowPlayingDurationSeconds,
       isAdmin,
