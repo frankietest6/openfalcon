@@ -401,6 +401,11 @@
       <p class="next">Up Next: {NEXT_PLAYLIST}</p>
     </div>
 
+    <div {location-code-dynamic-container} style="text-align:center;margin:1rem 0;">
+      <h2 class="neon-heading">⟪ Enter Access Code ⟫</h2>
+      {LOCATION_CODE}
+    </div>
+
     <div {playlist-voting-dynamic-container}>
       <h2 class="neon-heading">⟪ Cast Your Vote ⟫</h2>
       <div class="voting_table">{PLAYLISTS}</div>
@@ -426,5 +431,6 @@
   <div id="requestPlaying"    class="toast info">▸ Already up next — pick another.</div>
   <div id="queueFull"         class="toast error">▸ Queue full.</div>
   <div id="invalidLocation"   class="toast info">▸ Location required.</div>
+  <div id="invalidLocationCode" class="toast error">▸ Invalid access code.</div>
 </body>
 </html>

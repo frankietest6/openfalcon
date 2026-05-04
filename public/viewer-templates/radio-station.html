@@ -387,6 +387,11 @@
       </div>
     </div>
 
+    <div {location-code-dynamic-container} style="text-align:center;margin:1rem 0;">
+      <h2 class="booth-heading">Enter Access Code</h2>
+      {LOCATION_CODE}
+    </div>
+
     <div {playlist-voting-dynamic-container}>
       <h2 class="booth-heading">Vote &mdash; Top Pick Plays Next</h2>
       <div class="voting_table">{PLAYLISTS}</div>
@@ -412,5 +417,6 @@
   <div id="requestPlaying"    class="toast info">That track is already in rotation.</div>
   <div id="queueFull"         class="toast error">Request line is full — try again shortly.</div>
   <div id="invalidLocation"   class="toast info">Location required to call in.</div>
+  <div id="invalidLocationCode" class="toast error">Invalid or missing access code.</div>
 </body>
 </html>

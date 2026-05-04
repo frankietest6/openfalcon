@@ -211,6 +211,9 @@ router.put('/config', requireAdmin, (req, res) => {
     'show_latitude',
     'show_longitude',
     'check_radius_miles',
+    // Location code (v0.33.24+)
+    'location_code_enabled',
+    'location_code',
     // Misc
     'hide_sequence_after_played',
     'blocked_ips',

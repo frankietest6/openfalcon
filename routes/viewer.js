@@ -108,19 +108,30 @@ function sequenceCooldownUntil(seq) {
 }
 
 function viewerPresenceCheck(req, cfg) {
-  if (!cfg.check_viewer_present) return { ok: true };
-  if (cfg.viewer_present_mode !== 'GPS') return { ok: true };
-  if (!cfg.show_latitude || !cfg.show_longitude) {
-    return { ok: false, error: 'Show location not configured on server' };
+  // GPS check
+  if (cfg.check_viewer_present && cfg.viewer_present_mode === 'GPS') {
+    if (!cfg.show_latitude || !cfg.show_longitude) {
+      return { ok: false, error: 'Show location not configured on server' };
+    }
+    const lat = parseFloat(req.body?.viewerLat ?? req.query?.lat);
+    const lng = parseFloat(req.body?.viewerLng ?? req.query?.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      return { ok: false, error: 'Location required to vote/request. Please allow location access.' };
+    }
+    const dist = distanceMiles(cfg.show_latitude, cfg.show_longitude, lat, lng);
+    if (dist > cfg.check_radius_miles) {
+      return { ok: false, error: `You must be within ${cfg.check_radius_miles} miles of the show to interact.` };
+    }
   }
-  const lat = parseFloat(req.body?.viewerLat ?? req.query?.lat);
-  const lng = parseFloat(req.body?.viewerLng ?? req.query?.lng);
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-    return { ok: false, error: 'Location required to vote/request. Please allow location access.' };
-  }
-  const dist = distanceMiles(cfg.show_latitude, cfg.show_longitude, lat, lng);
-  if (dist > cfg.check_radius_miles) {
-    return { ok: false, error: `You must be within ${cfg.check_radius_miles} miles of the show to interact.` };
+  // Location code check (v0.33.24+)
+  if (cfg.location_code_enabled) {
+    const submitted = (req.body?.locationCode ?? '').toString().trim();
+    const expected  = (cfg.location_code ?? '').toString().trim();
+    // If the admin enabled the feature but left the code blank, let everything
+    // through — same "misconfigured = open" convention as the GPS gate.
+    if (expected && submitted !== expected) {
+      return { ok: false, error: 'Invalid or missing access code.', invalidLocationCode: true };
+    }
   }
   return { ok: true };
 }
@@ -138,7 +149,8 @@ function runSafeguards(req, res, requiredMode) {
   }
   const presence = viewerPresenceCheck(req, cfg);
   if (!presence.ok) {
-    res.status(403).json({ error: presence.error });
+    const status = presence.invalidLocationCode ? 403 : 403;
+    res.status(status).json({ error: presence.error, invalidLocationCode: !!presence.invalidLocationCode });
     return null;
   }
   return cfg;
@@ -255,6 +267,7 @@ router.get('/state', (req, res) => {
     voteCounts,
     queue,
     requiresLocation: cfg.check_viewer_present === 1 && cfg.viewer_present_mode === 'GPS',
+    requiresLocationCode: cfg.location_code_enabled === 1,
     // Vote shifting (v0.32.6+): mirror of bootstrap allowVoteChange so an
     // admin toggling this mid-show propagates to viewers without a reload.
     allowVoteChange: cfg.allow_vote_change === 1,

@@ -68,6 +68,7 @@
     success: 'requestSuccessful',
     voteSuccess: 'voteSuccessful',
     invalidLocation: 'invalidLocation',
+    invalidLocationCode: 'invalidLocationCode',
     failed: 'requestFailed',
     alreadyQueued: 'requestPlaying',
     queueFull: 'queueFull',
@@ -135,8 +136,11 @@
     }, durationMs || 3000);
   }
 
-  function mapErrorToId(error) {
+  function mapErrorToId(error, data) {
+    // Server explicitly flags code failures (v0.33.24+) — use the dedicated toast.
+    if (data && data.invalidLocationCode) return MSG_IDS.invalidLocationCode;
     const msg = (error || '').toLowerCase();
+    if (msg.includes('access code')) return MSG_IDS.invalidLocationCode;
     if (msg.includes('location')) return MSG_IDS.invalidLocation;
     if (msg.includes('already voted')) return MSG_IDS.alreadyVoted;
     if (msg.includes('already') && (msg.includes('request') || msg.includes('queue'))) return MSG_IDS.alreadyQueued;
@@ -309,6 +313,13 @@
         throw e;
       }
     }
+    // Location code (v0.33.24+): read from #locationCodeInput if present.
+    // Always include when requiresLocationCode so the server can validate;
+    // silently omit on installs where the feature is off.
+    if (boot.requiresLocationCode) {
+      const codeEl = document.getElementById('locationCodeInput');
+      body.locationCode = codeEl ? codeEl.value.trim() : '';
+    }
     return body;
   }
 
@@ -385,7 +396,7 @@
       // ShowPilotRequest's behavior, which has always done this.
       refreshState();
     } else {
-      showMessage(mapErrorToId(result.data?.error), undefined, undefined, result.data?.error);
+      showMessage(mapErrorToId(result.data?.error, result.data), undefined, undefined, result.data?.error);
     }
   };
 
@@ -399,7 +410,7 @@
       showMessage(MSG_IDS.success);
       refreshState();
     } else {
-      showMessage(mapErrorToId(result.data?.error), undefined, undefined, result.data?.error);
+      showMessage(mapErrorToId(result.data?.error, result.data), undefined, undefined, result.data?.error);
     }
   };
 
@@ -478,6 +489,11 @@
     // setting mid-show propagates without a viewer reload.
     if (typeof data.allowVoteChange === 'boolean') {
       allowVoteChange = data.allowVoteChange;
+    }
+
+    // --- Location code flag (v0.33.24+) ---
+    if (typeof data.requiresLocationCode === 'boolean') {
+      boot.requiresLocationCode = data.requiresLocationCode;
     }
 
     // --- Show name → document title (v0.33.6+) ---
@@ -915,7 +931,7 @@
       // the tiebreakVoteUpdate socket event.
       refreshState();
     } else {
-      showMessage(mapErrorToId(result.data?.error), undefined, undefined, result.data?.error);
+      showMessage(mapErrorToId(result.data?.error, result.data), undefined, undefined, result.data?.error);
     }
   };
 

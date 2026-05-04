@@ -402,6 +402,11 @@
       <p class="next">Next on the marquee: {NEXT_PLAYLIST}</p>
     </div>
 
+    <div {location-code-dynamic-container} style="text-align:center;margin:1rem 0;">
+      <p class="label">Enter the access code to participate:</p>
+      {LOCATION_CODE}
+    </div>
+
     <div {playlist-voting-dynamic-container}>
       <div class="billboard-heading"><h2>Cast Your Vote</h2></div>
       <div class="voting_table">{PLAYLISTS}</div>
@@ -427,5 +432,6 @@
   <div id="requestPlaying"    class="toast info">That song is already up next.</div>
   <div id="queueFull"         class="toast error">The queue is full. Try again in a few.</div>
   <div id="invalidLocation"   class="toast info">Location required to vote or request.</div>
+  <div id="invalidLocationCode" class="toast error">Invalid or missing access code.</div>
 </body>
 </html>

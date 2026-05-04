@@ -445,6 +445,11 @@
       <p class="next">Up next ▸ {NEXT_PLAYLIST}</p>
     </div>
 
+    <div {location-code-dynamic-container} style="text-align:center;margin:1rem 0;">
+      <h2 class="crt-heading">▸ Enter Access Code</h2>
+      {LOCATION_CODE}
+    </div>
+
     <div {playlist-voting-dynamic-container}>
       <h2 class="crt-heading">Audience Vote</h2>
       <div class="voting_table">{PLAYLISTS}</div>
@@ -470,5 +475,6 @@
   <div id="requestPlaying"    class="toast info">▸ ALREADY IN QUEUE</div>
   <div id="queueFull"         class="toast error">▸ QUEUE BUFFER FULL</div>
   <div id="invalidLocation"   class="toast info">▸ LOCATION SIGNAL REQUIRED</div>
+  <div id="invalidLocationCode" class="toast error">▸ INVALID ACCESS CODE</div>
 </body>
 </html>
