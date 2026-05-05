@@ -3124,6 +3124,7 @@
         const a = new Audio();
         a.preload = 'auto';
         a.crossOrigin = 'anonymous';  // allow Web Audio to tap if we ever need it again
+        console.info('[ShowPilot] audio source:', useRelay ? 'RELAY' : 'CACHE', chosenUrl);
         a.src = chosenUrl;
         a.muted = isMuted;
         a.volume = 1;
