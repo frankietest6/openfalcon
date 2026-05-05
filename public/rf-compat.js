@@ -3170,18 +3170,20 @@
           setTimeout(() => { if (!settled) { settled = true; reject(new Error('audio load timeout')); } }, 15000);
         });
 
-        // ---- Wall-clock scheduled start ----
-        // Pick a future server-time moment that all phones aim for.
-        // 600ms gives all phones time to finish buffering and reach this point.
-        // Both phones compute the same targetServerStartMs, convert to local
-        // time via clockOffset, and call .play() at the same wall-clock instant.
+        // ---- Seek to current FPP position + scheduled start ----
+        // Use live fppStatus if available (daemon WebSocket connected) for
+        // accurate position. Falls back to trackStartedAtMs extrapolation.
         const myGeneration = playGeneration;
         const TARGET_LEAD_MS = 600;
         const targetServerStartMs = Date.now() + clockOffset + TARGET_LEAD_MS;
 
-        // Seek to where the track will be at the scheduled start moment
         let targetPosition;
-        if (livePosition && livePosition.sequence === currentSequence) {
+        if (fppStatus && fppStatus.positionSec > 0 && fppStatus.serverTimestamp) {
+          // Use live FPP position — most accurate, accounts for all latency
+          const clientTimeOfUpdate = fppStatus.serverTimestamp - clockOffset;
+          const msSinceUpdate = Math.min(Math.max(Date.now() - clientTimeOfUpdate, 0), 2000);
+          targetPosition = fppStatus.positionSec + (msSinceUpdate / 1000) + (TARGET_LEAD_MS / 1000) - (audioSyncOffsetMs / 1000);
+        } else if (livePosition && livePosition.sequence === currentSequence) {
           const elapsedToTarget = (targetServerStartMs - livePosition.updatedAt) / 1000;
           targetPosition = livePosition.position + elapsedToTarget - (audioSyncOffsetMs / 1000);
         } else {
@@ -3466,11 +3468,22 @@
         // Proportional playbackRate correction — rate scales with drift magnitude.
         // Wider dead zone (150ms) reduces oscillation on high-latency connections.
         // Max correction ±1% to avoid overshoot that causes pendulum swinging.
+        // Exception: if drift is large (>300ms) and we're early in the track,
+        // do a one-time hard seek rather than waiting 30-50s for playbackRate
+        // to grind it down. playbackRate at 1% corrects only ~10ms/sec.
         if (Math.abs(driftMs) > 3000) {
           // Very large drift — hard seek
           try { htmlAudio.currentTime = fppPositionNow; htmlAudio.playbackRate = 1.0; } catch (_) {}
+        } else if (Math.abs(driftMs) > 300 && pendingPostStartCorrectionAtMs === 0 && Date.now() - audioStartedAtMs < 5000) {
+          // Large drift within first 5 seconds of playback — hard seek to correct
+          // startup error immediately rather than grinding via playbackRate
+          try {
+            htmlAudio.currentTime = fppPositionNow;
+            htmlAudio.playbackRate = 1.0;
+            console.info('[ShowPilot] startup seek correction:', driftMs, 'ms → seeking to', fppPositionNow.toFixed(3), 's');
+          } catch (_) {}
         } else if (Math.abs(driftMs) > 150) {
-          // Proportional: 150ms→0.5%, 500ms→1%, capped at 1%
+          // Proportional: 150ms→0.3%, 500ms→1%, capped at 1%
           const correction = Math.min(Math.abs(driftMs) / 50000, 0.01);
           htmlAudio.playbackRate = driftMs > 0 ? (1.0 - correction) : (1.0 + correction);
         } else {
