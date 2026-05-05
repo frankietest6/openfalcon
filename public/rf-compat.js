@@ -3204,22 +3204,22 @@
         });
         if (playGeneration !== myGeneration) return;
 
-        if (!syncPoint || !syncPoint.positionSec) {
-          statusEl.textContent = 'Waiting for sync…';
-          currentSequence = null;
-          return;
-        }
-
-        // All devices receiving this syncPoint compute identical seek position.
-        // For play timing: use LOCAL arrival time + LEAD_MS, not server time.
-        // All devices receive the same Socket.io broadcast within ~1ms of each
-        // other (LAN fan-out). Adding LEAD_MS to local arrival time means all
-        // devices play at the same wall-clock moment regardless of clockOffset
-        // accuracy differences between devices.
+        // If no syncPoint arrived, fall back to fppStatus or trackStartedAtMs
         const LEAD_MS = 800;
-        const arrivalTime = Date.now(); // local time when syncPoint arrived
-        const playAtClientMs = arrivalTime + LEAD_MS;
-        let targetPosition = syncPoint.positionSec + (LEAD_MS / 1000) - (audioSyncOffsetMs / 1000);
+        let targetPosition;
+        let playAtClientMs;
+
+        if (syncPoint && syncPoint.positionSec > 0) {
+          // Got a syncPoint — all devices with same event compute identical values
+          const arrivalTime = Date.now();
+          playAtClientMs = arrivalTime + LEAD_MS;
+          targetPosition = syncPoint.positionSec + (LEAD_MS / 1000) - (audioSyncOffsetMs / 1000);
+        } else {
+          // No syncPoint — use best available position and play immediately
+          const pos = fppStatus?.positionSec || Math.max(0, (Date.now() + clockOffset - trackStartedAtMs) / 1000);
+          playAtClientMs = Date.now() + 200;
+          targetPosition = pos + 0.2 - (audioSyncOffsetMs / 1000);
+        }
 
         if (targetPosition < 0) targetPosition = 0;
         if (a.duration && targetPosition >= a.duration) {
