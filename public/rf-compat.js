@@ -3455,13 +3455,48 @@
       // adding meaningful latency. The whole sampling window is ~50ms,
       // imperceptible.
       if (pendingPostStartCorrectionAtMs > 0 && Date.now() >= pendingPostStartCorrectionAtMs) {
-        // Clear FIRST so subsequent drift-loop ticks don't re-fire while
-        // the async sampler is collecting its 3 samples.
         pendingPostStartCorrectionAtMs = 0;
-        // Relay mode: skip correction entirely. The relay delivers the same
-        // live bytes to all listeners simultaneously — there is no "drift"
-        // to correct, and seeking a live stream would break playback.
-        if (!useRelay) {
+
+        if (useRelay) {
+          // Relay mode: snap to daemon's actual position so all phones align
+          // to the same reference point. The daemon reports where FPP actually
+          // is in the song; all phones correct to that same position once.
+          const audioForCorrection = htmlAudio;
+          (async () => {
+            try {
+              const cfg = getConfig ? getConfig() : null;
+              // Re-fetch now-playing-audio to get fresh daemon position
+              const npRes = await fetch(window.location.origin + '/api/now-playing-audio', {
+                signal: AbortSignal.timeout(2000),
+              });
+              if (!npRes.ok || htmlAudio !== audioForCorrection) return;
+              const npData = await npRes.json();
+              if (!npData.playing || htmlAudio !== audioForCorrection) return;
+
+              // elapsedSec is how far into the song FPP currently is
+              const daemonPositionSec = npData.elapsedSec || 0;
+              if (daemonPositionSec <= 0) return;
+
+              // currentTime is how many seconds of stream we've played since connecting.
+              // The stream started partway through the song (at startByte position).
+              // We don't know exactly where the daemon started us, but we can
+              // calculate it: streamStartPosition = daemonPosition - currentTime
+              // Then snap: target = daemonPosition (where song actually is now)
+              //                   - (daemonPosition - currentTime at correction time)
+              //            which simplifies to: just set currentTime = daemonPosition - streamOffset
+              // Simpler approach: just seek to elapsedSec directly since the stream
+              // is a full file and the browser has buffered it.
+              const target = daemonPositionSec;
+              if (target >= 0 && audioForCorrection.duration && target < audioForCorrection.duration - 0.1) {
+                const before = audioForCorrection.currentTime;
+                audioForCorrection.currentTime = target;
+                console.info('[ShowPilot] relay snap: currentTime', before.toFixed(2), '→', target.toFixed(2), 's (daemon position)');
+              }
+            } catch (err) {
+              console.warn('[ShowPilot] relay position snap failed:', err);
+            }
+          })();
+        } else {
         const POST_START_THRESHOLD_MS = 80;
         // Capture the audio element handle so a stopAudio()/track-change
         // mid-sampling doesn't snap a stale element. If htmlAudio gets
@@ -3503,7 +3538,7 @@
             }
           }
         })();
-        } // end !useRelay
+        } // end else (non-relay)
       }
 
       // ---- Auto-correction via re-seek ----
