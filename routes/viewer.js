@@ -867,13 +867,14 @@ router.get('/now-playing-audio', (req, res) => {
 // simultaneously. All viewers get the same bytes at the same moment = sync.
 // Fallback: per-viewer daemon proxy if shared relay isn't active yet.
 router.head('/audio-relay/:sequence', (req, res) => {
-  // HEAD check — just confirm the relay endpoint exists, don't open a stream.
   const cfg = getConfig();
   if (cfg.audio_enabled === 0 || !cfg.plugin_fpp_host) return res.status(503).end();
+  res.setHeader('Access-Control-Allow-Origin', '*');
   res.status(200).end();
 });
 
 router.get('/audio-relay/:sequence', (req, res) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
   const cfg = getConfig();
   if (cfg.audio_enabled === 0) return res.status(404).send('Audio is disabled.');
   if (!cfg.plugin_fpp_host) return res.status(503).json({ error: 'no_fpp_host' });

@@ -3123,7 +3123,10 @@
 
         const a = new Audio();
         a.preload = 'auto';
-        a.crossOrigin = 'anonymous';  // allow Web Audio to tap if we ever need it again
+        // Note: do NOT set crossOrigin on the relay audio element.
+        // crossOrigin triggers CORS preflight which our relay doesn't support,
+        // causing the browser to silently fail the request.
+        if (!useRelay) a.crossOrigin = 'anonymous';
         console.info('[ShowPilot] audio source:', useRelay ? 'RELAY' : 'CACHE', chosenUrl);
         a.src = chosenUrl;
         a.muted = isMuted;
