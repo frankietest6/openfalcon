@@ -2402,6 +2402,7 @@
     let htmlAudio = null;
     let useRelay = false;  // true when audio is coming from the live relay stream
     let fppStatus = null;  // latest FPP position from daemon WebSocket
+    let audioSock = null;  // Socket.io connection for position updates
 
     // Post-startup correction state (v0.27.0).
     // The browser's `.play()` call has non-deterministic startup latency
@@ -2686,7 +2687,6 @@
         // our anchor each time, giving us near-real-time speaker-accurate
         // sync without polling overhead. socket.io is shared with the
         // outer (queue/voting) scope; window.io() returns a singleton.
-        let audioSock = null;
         try {
           if (window.io) {
             audioSock = window.io();
