@@ -3210,10 +3210,15 @@
           return;
         }
 
-        // All devices receiving this syncPoint compute identical values.
-        const LEAD_MS = 600;
-        const playAtServerMs = syncPoint.serverTimestamp + LEAD_MS;
-        const playAtClientMs = playAtServerMs - clockOffset;
+        // All devices receiving this syncPoint compute identical seek position.
+        // For play timing: use LOCAL arrival time + LEAD_MS, not server time.
+        // All devices receive the same Socket.io broadcast within ~1ms of each
+        // other (LAN fan-out). Adding LEAD_MS to local arrival time means all
+        // devices play at the same wall-clock moment regardless of clockOffset
+        // accuracy differences between devices.
+        const LEAD_MS = 800;
+        const arrivalTime = Date.now(); // local time when syncPoint arrived
+        const playAtClientMs = arrivalTime + LEAD_MS;
         let targetPosition = syncPoint.positionSec + (LEAD_MS / 1000) - (audioSyncOffsetMs / 1000);
 
         if (targetPosition < 0) targetPosition = 0;
