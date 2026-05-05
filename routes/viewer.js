@@ -834,6 +834,10 @@ router.get('/now-playing-audio', (req, res) => {
     publicStreamUrl: cfg.public_base_url
       ? `${String(cfg.public_base_url).replace(/\/+$/, '')}/api/audio-stream/${encodeURIComponent(seq.name)}${versionParam}`
       : '',
+    // Relay URL — try this first for live sync. Falls back to streamUrl if relay
+    // is not active (503 response). Relay is same-origin only (LAN/local listeners);
+    // external listeners use publicStreamUrl which goes through the cache path.
+    relayUrl: `/api/audio-relay/${encodeURIComponent(seq.name)}`,
     // Per-show sync offset in milliseconds. Positive = play audio LATER
     // (compensates for audio arriving too early — the typical case after
     // the cache change, since cache delivery is faster than the previous
@@ -847,6 +851,45 @@ router.get('/now-playing-audio', (req, res) => {
 // Audio proxy — checks the local audio cache first (populated by the plugin
 // during sync). Falls back to proxying from FPP if not cached. Supports
 // HTTP Range requests so browsers can seek/resume.
+// ============================================================
+// GET /api/audio-relay/:sequence
+// ============================================================
+// Live broadcast relay endpoint. The server maintains one open
+// connection to FPP per playing song and fans the bytes to every
+// connected listener simultaneously. All listeners hear the same
+// bytes at the same wall-clock moment → automatic sync, no offset.
+//
+// Falls back to the cache/proxy endpoint if no relay is active for
+// this sequence (song not currently playing, relay not started yet,
+// or audio is disabled).
+router.get('/audio-relay/:sequence', (req, res) => {
+  const cfg = getConfig();
+  if (cfg.audio_enabled === 0) {
+    return res.status(404).send('Audio is disabled for this show.');
+  }
+
+  const reqName = String(req.params.sequence || '');
+  const { addListener, getActiveSequence } = require('../lib/audio-relay');
+
+  // Normalize: look up the canonical sequence name the same way audio-stream does.
+  let seq = getSequenceByName(reqName);
+  if (!seq) {
+    seq = db.prepare(`SELECT * FROM sequences WHERE LOWER(name) = LOWER(?) LIMIT 1`).get(reqName);
+  }
+  if (!seq) return res.status(404).send('Sequence not found');
+
+  const activeSeq = getActiveSequence();
+  if (activeSeq && activeSeq.toLowerCase() === seq.name.toLowerCase()) {
+    // Relay is live for this sequence — add this viewer to the broadcast.
+    const added = addListener(seq.name, res);
+    if (added) return; // response stays open, relay drives it from here
+  }
+
+  // No active relay (song not playing, between songs, relay not started yet).
+  // Return 503 so the viewer falls back to the cache endpoint.
+  res.status(503).json({ error: 'relay_not_active', fallback: true });
+});
+
 router.get('/audio-stream/:sequence', async (req, res) => {
   // Master audio kill-switch — admin disabled audio entirely. Bail before
   // any cache lookup or FPP proxy work. 404 (not 403) so the browser

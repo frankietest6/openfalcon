@@ -3093,9 +3093,35 @@
       // moment, seeked to the same position, drift apart only by their
       // network latency variance (a few tens of ms on LAN) — far better
       // than the multi-hundred-ms drift we saw with Web Audio scheduling.
+      // Try the live relay first — one FPP connection fanned to all listeners
+      // gives automatic sync without offset math. If the relay isn't active
+      // (between songs, not yet started, 503 response), fall through to the
+      // cache/proxy path which handles late joiners and external listeners.
+      let useRelay = false;
+      if (data.relayUrl) {
+        try {
+          const probe = await fetch(window.location.origin + data.relayUrl, {
+            method: 'HEAD',
+            credentials: 'include',
+            signal: AbortSignal.timeout(1500),
+          });
+          // 200 means relay is live; anything else (503 = not active) means fall back
+          useRelay = probe.ok;
+        } catch (_) {
+          useRelay = false;
+        }
+      }
+
       const urlsToTry = [];
-      if (data.streamUrl) urlsToTry.push(window.location.origin + data.streamUrl);
-      if (data.publicStreamUrl) urlsToTry.push(data.publicStreamUrl);
+      if (useRelay && data.relayUrl) {
+        // Relay is live — use it. Skip the cache URL entirely so all phones
+        // share the same byte stream and sync is automatic.
+        urlsToTry.push(window.location.origin + data.relayUrl);
+      } else {
+        // Relay not available — fall back to cache/proxy as before.
+        if (data.streamUrl) urlsToTry.push(window.location.origin + data.streamUrl);
+        if (data.publicStreamUrl) urlsToTry.push(data.publicStreamUrl);
+      }
       if (urlsToTry.length === 0) {
         statusEl.textContent = 'No audio source';
         return;
@@ -3116,23 +3142,25 @@
         a.muted = isMuted;
         a.volume = 1;
 
-        // Wait for enough data to play. `canplaythrough` is more
-        // conservative than `canplay` — fires when the browser believes
-        // it has enough buffered to play to the end without rebuffering.
-        // We use it because the wall-clock scheduling below assumes
-        // .play() will start audio output essentially immediately;
-        // if `canplay` fires too eagerly, .play() could stall and add
-        // unpredictable startup latency that breaks the scheduled-start
-        // sync between phones.
+        // Wait for enough data to play. For the relay (live stream, no
+        // Content-Length) we use `canplay` immediately — `canplaythrough`
+        // never fires on a stream because the browser can't know when
+        // "through" is. For cached files we still prefer `canplaythrough`
+        // (more conservative, avoids rebuffering) with a 3s fallback.
         await new Promise((resolve, reject) => {
           let settled = false;
           const onReady = () => { if (!settled) { settled = true; resolve(); } };
           const onErr = () => { if (!settled) { settled = true; reject(new Error('audio load failed')); } };
-          a.addEventListener('canplaythrough', onReady, { once: true });
-          // Fallback to canplay if canplaythrough doesn't fire in 3s —
-          // some browsers are stingy about firing it. Better to start
-          // with less buffer than to never start.
-          setTimeout(() => a.addEventListener('canplay', onReady, { once: true }), 3000);
+          if (useRelay) {
+            // Live stream — canplay fires as soon as a few bytes arrive
+            a.addEventListener('canplay', onReady, { once: true });
+          } else {
+            a.addEventListener('canplaythrough', onReady, { once: true });
+            // Fallback to canplay if canplaythrough doesn't fire in 3s —
+            // some browsers are stingy about firing it. Better to start
+            // with less buffer than to never start.
+            setTimeout(() => a.addEventListener('canplay', onReady, { once: true }), 3000);
+          }
           a.addEventListener('error', onErr, { once: true });
           setTimeout(() => { if (!settled) { settled = true; reject(new Error('audio load timeout')); } }, 15000);
         });
@@ -3160,16 +3188,20 @@
         // therefore to within ~2x that noise of each other. Empirically
         // this is well under 100ms — below the threshold of perception
         // for synchronized music in adjacent cars.
-        const startPosition = getExpectedPosition();
-        if (startPosition < 0) {
-          a.currentTime = 0;
-        } else if (a.duration && startPosition >= a.duration) {
-          // Track will be over by the time we'd start. Track-change poll
-          // will pick up the next sequence on its own.
-          statusEl.textContent = 'Waiting for next track…';
-          return;
-        } else {
-          a.currentTime = startPosition;
+        // Relay mode: don't seek. The stream starts at the current live
+        // position already — seeking would break the connection. Just play.
+        if (!useRelay) {
+          const startPosition = getExpectedPosition();
+          if (startPosition < 0) {
+            a.currentTime = 0;
+          } else if (a.duration && startPosition >= a.duration) {
+            // Track will be over by the time we'd start. Track-change poll
+            // will pick up the next sequence on its own.
+            statusEl.textContent = 'Waiting for next track…';
+            return;
+          } else {
+            a.currentTime = startPosition;
+          }
         }
 
         // Set as active right before play so the drift loop's re-seek
@@ -3177,8 +3209,7 @@
         htmlAudio = a;
         await a.play();
         // Schedule the one-shot post-start measurement-and-correction.
-        // updateDriftDisplay() (running on its existing interval) checks
-        // this timestamp every tick and fires the correction once.
+        // Skipped in relay mode (gated inside updateDriftDisplay).
         pendingPostStartCorrectionAtMs = Date.now() + 1000;
         setPlayIcon(true);
         statusEl.textContent = '';
@@ -3434,6 +3465,10 @@
         // Clear FIRST so subsequent drift-loop ticks don't re-fire while
         // the async sampler is collecting its 3 samples.
         pendingPostStartCorrectionAtMs = 0;
+        // Relay mode: skip correction entirely. The relay delivers the same
+        // live bytes to all listeners simultaneously — there is no "drift"
+        // to correct, and seeking a live stream would break playback.
+        if (!useRelay) {
         const POST_START_THRESHOLD_MS = 80;
         // Capture the audio element handle so a stopAudio()/track-change
         // mid-sampling doesn't snap a stale element. If htmlAudio gets
@@ -3475,6 +3510,7 @@
             }
           }
         })();
+        } // end !useRelay
       }
 
       // ---- Auto-correction via re-seek ----
@@ -3484,6 +3520,9 @@
       // This produces a tiny audible blip (browser handles a brief
       // re-buffer) but it's preferable to letting drift accumulate.
       //
+      // Skipped in relay mode — the relay delivers the same live bytes
+      // to all listeners, seeking would break the stream.
+      //
       // Tolerance is more generous than the Web Audio version because:
       // (1) every re-seek is audibly noticeable as a small pop, and
       // (2) HTML5 audio plays at native rate without rate jitter, so
@@ -3492,6 +3531,7 @@
       // position has been received, or after device sleep.
       driftHistory.push(drift);
       if (driftHistory.length > DRIFT_HISTORY_SIZE) driftHistory.shift();
+      if (useRelay) return; // relay mode — no seeking, sync is automatic
       if (driftHistory.length < DRIFT_HISTORY_SIZE) return;
 
       const avgDrift = driftHistory.reduce((a, b) => a + b, 0) / driftHistory.length;

@@ -585,6 +585,17 @@ router.post('/playing', (req, res) => {
   const io = req.app.get('io');
   if (io) io.emit('nowPlaying', { sequenceName: name || null });
 
+  // Start the broadcast relay for the new song. The relay opens one
+  // connection to FPP and fans audio bytes out to all viewer listeners,
+  // giving automatic multi-phone sync without any offset math.
+  // stopRelay() is called inside startRelay() if a relay was already running.
+  const { startRelay, stopRelay } = require('../lib/audio-relay');
+  if (name) {
+    startRelay(name);
+  } else {
+    stopRelay('nothing playing');
+  }
+
   res.json({ ok: true });
 });
 
