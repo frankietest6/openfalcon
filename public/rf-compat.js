@@ -2687,12 +2687,11 @@
             // playbackRate drift correction so phones track FPP's speakers.
             audioSock.on('fppPosition', (msg) => {
               if (!htmlAudio || htmlAudio.paused || !msg || !msg.playing) return;
-              if (!msg.filename || !fppStatus) return;
-
-              // Store for drift correction loop
+              if (!msg.filename) return;
               fppStatus = {
                 positionSec: msg.positionSec,
                 serverTimestamp: msg.serverTimestamp,
+                arrivedAt: Date.now(), // client clock when event arrived
                 filename: msg.filename,
               };
             });
@@ -3418,33 +3417,35 @@
       // to correct drift via playbackRate. This syncs phones to FPP's
       // actual speakers rather than to each other or to a computed position.
       if (fppStatus && fppStatus.positionSec > 0 && fppStatus.serverTimestamp) {
-        // Extrapolate FPP's current position to now
-        const msSinceFppUpdate = Date.now() - fppStatus.serverTimestamp + clockOffset;
+        // Calculate how stale this fppStatus reading is.
+        // msg.serverTimestamp is server clock time when daemon sent it.
+        // Converting to client time: clientEquivalent = serverTimestamp - clockOffset
+        // Elapsed since then: Date.now() - clientEquivalent
+        // Cap at 2s — don't extrapolate beyond that on very stale readings.
+        const clientTimeOfUpdate = fppStatus.serverTimestamp - clockOffset;
+        const msSinceFppUpdate = Math.min(Math.max(Date.now() - clientTimeOfUpdate, 0), 2000);
         const fppPositionNow = fppStatus.positionSec + (msSinceFppUpdate / 1000);
-        const drift = htmlAudio.currentTime - fppPositionNow; // positive = we're ahead of FPP
+        const drift = htmlAudio.currentTime - fppPositionNow; // positive = we're ahead
         const driftMs = Math.round(drift * 1000);
 
         if (driftEl) {
           driftEl.textContent = '· ' + (driftMs >= 0 ? '+' : '') + driftMs + 'ms';
           const absMs = Math.abs(driftMs);
-          driftEl.style.color = absMs < 100 ? '#4ade80' : (absMs < 500 ? '#fb923c' : '#ef4444');
+          driftEl.style.color = absMs < 150 ? '#4ade80' : (absMs < 500 ? '#fb923c' : '#ef4444');
         }
 
-        // playbackRate correction — max ±2%, inaudible
-        if (Math.abs(driftMs) > 2000) {
-          // Large drift — hard seek to correct position
-          try {
-            htmlAudio.currentTime = fppPositionNow;
-            htmlAudio.playbackRate = 1.0;
-          } catch (_) {}
-        } else if (driftMs > 50) {
-          // We're ahead of FPP — slow down slightly
-          htmlAudio.playbackRate = 0.98;
-        } else if (driftMs < -50) {
-          // We're behind FPP — speed up slightly
-          htmlAudio.playbackRate = 1.02;
+        // Proportional playbackRate correction — rate scales with drift magnitude.
+        // Wider dead zone (150ms) reduces oscillation on high-latency connections.
+        // Max correction ±1% to avoid overshoot that causes pendulum swinging.
+        if (Math.abs(driftMs) > 3000) {
+          // Very large drift — hard seek
+          try { htmlAudio.currentTime = fppPositionNow; htmlAudio.playbackRate = 1.0; } catch (_) {}
+        } else if (Math.abs(driftMs) > 150) {
+          // Proportional: 150ms→0.5%, 500ms→1%, capped at 1%
+          const correction = Math.min(Math.abs(driftMs) / 50000, 0.01);
+          htmlAudio.playbackRate = driftMs > 0 ? (1.0 - correction) : (1.0 + correction);
         } else {
-          // In sync — normal rate
+          // Within 150ms dead zone — stop correcting, let it settle
           htmlAudio.playbackRate = 1.0;
         }
         return;
