@@ -2397,6 +2397,7 @@
     // multi-phone sync — see comments in handleTrackChange. Reset to
     // null after stopAudio.
     let htmlAudio = null;
+    let useRelay = false;  // true when audio is coming from the live relay stream
 
     // Post-startup correction state (v0.27.0).
     // The browser's `.play()` call has non-deterministic startup latency
@@ -3098,17 +3099,9 @@
       // if the relay isn't active the server returns 503 and we fall back to
       // the cache path. No separate HEAD probe — that would open a dead
       // connection on the relay and stagger phone join times.
-      let useRelay = false;
-      const urlsToTry = [];
-      if (data.relayUrl) {
-        urlsToTry.push({ url: window.location.origin + data.relayUrl, isRelay: true });
-      }
-      if (data.streamUrl) urlsToTry.push({ url: window.location.origin + data.streamUrl, isRelay: false });
-      if (data.publicStreamUrl) urlsToTry.push({ url: data.publicStreamUrl, isRelay: false });
-      if (urlsToTry.length === 0) {
-        statusEl.textContent = 'No audio source';
-        return;
-      }
+      // Server tells us via relayActive whether the relay is live.
+      // Reset useRelay here so it's fresh for each track change.
+      useRelay = false;
 
       try {
         // Create a fresh <audio> element each track. Reusing one across
