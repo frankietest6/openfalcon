@@ -3207,8 +3207,16 @@
         });
         if (playGeneration !== myGeneration) return;
 
-        // Calculate a play target 600ms from now in server time
-        const playAtServerMs = (freshFppStatus?.serverTimestamp || (Date.now() + clockOffset)) + 600;
+        // Coordinated play target — ALL devices must aim at the SAME absolute
+        // server-time moment. trackStartedAtMs is identical for all devices
+        // for this song. We pick the next 500ms boundary after "now + 800ms"
+        // measured from song start, so all devices that buffered within ~800ms
+        // of each other converge on the same target.
+        const serverNow = Date.now() + clockOffset;
+        const msSinceSongStart = serverNow - trackStartedAtMs;
+        // Next 500ms boundary at least 800ms from now
+        const intervalsElapsed = Math.ceil((msSinceSongStart + 800) / 500);
+        const playAtServerMs = trackStartedAtMs + (intervalsElapsed * 500);
         const playAtClientMs = playAtServerMs - clockOffset;
 
         // Seek to where FPP will be at the play moment
