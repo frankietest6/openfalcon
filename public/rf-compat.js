@@ -3426,6 +3426,7 @@
       }
       if (htmlAudio) {
         try { htmlAudio.playbackRate = 1.0; } catch (_) {}
+        htmlAudio._startupSeeked = false;
         try { htmlAudio.pause(); } catch {}
         try { htmlAudio.src = ''; htmlAudio.load(); } catch {}
         htmlAudio = null;
@@ -3515,10 +3516,17 @@
           ].join('\n');
         }
 
-        // playbackRate-only correction — no hard seeks which cause audio glitches.
-        // Proportional: scales with drift, max 2%, inaudible.
-        // Dead zone 150ms to avoid constant micro-corrections.
-        if (Math.abs(driftMs) > 150) {
+        // playbackRate-only correction — no repeated seeks which cause audio glitches.
+        // Exception: one-time snap seek in the first 3 seconds if drift is large.
+        // A single seek during initial playback is inaudible.
+        if (Math.abs(driftMs) > 300 && Date.now() - audioStartedAtMs < 3000 && !htmlAudio._startupSeeked) {
+          htmlAudio._startupSeeked = true;
+          try {
+            htmlAudio.currentTime = fppPositionNow;
+            htmlAudio.playbackRate = 1.0;
+            console.info('[ShowPilot] startup snap:', driftMs, 'ms → seeking to', fppPositionNow.toFixed(3), 's');
+          } catch (_) {}
+        } else if (Math.abs(driftMs) > 150) {
           const correction = Math.min(Math.abs(driftMs) / 25000, 0.02);
           htmlAudio.playbackRate = driftMs > 0 ? (1.0 - correction) : (1.0 + correction);
         } else {
