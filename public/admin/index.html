@@ -1824,7 +1824,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.30</span>
+        <span class="app-version">v0.33.31</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -2793,6 +2793,21 @@
                      onchange="saveSetting('audio_sync_offset_ms', parseInt(this.value) || 0)"
                      style="max-width: 120px;" />
               <span class="muted" style="font-size: 0.8rem;">— positive = delay audio (phones were ahead); negative = advance audio (phones were behind)</span>
+            </div>
+
+            <h3 style="margin-top: 1.5rem;">Audio daemon</h3>
+            <p class="muted" style="font-size: 0.85rem; margin: 0 0 0.5rem;">
+              ShowPilot connects to the audio daemon running on your FPP Pi to relay
+              live audio to all listeners simultaneously. The daemon is automatically
+              started by the ShowPilot FPP plugin on port 8090. Only change this if
+              you configured a different port in the plugin.
+            </p>
+            <div class="row" style="gap: 0.5rem; align-items: center;">
+              <label for="cfg_audio_daemon_port" style="margin: 0;">Daemon port:</label>
+              <input type="number" id="cfg_audio_daemon_port" step="1" min="1024" max="65535"
+                     onchange="saveSetting('audio_daemon_port', parseInt(this.value) || 8090)"
+                     style="max-width: 120px;" />
+              <span class="muted" style="font-size: 0.8rem;">— default 8090, must match ShowPilot plugin setting</span>
             </div>
 
             <h3 style="margin-top: 1.5rem;">External audio access</h3>
@@ -4803,6 +4818,7 @@
       setChk('cfg_audio_gate_enabled', c.audio_gate_enabled);
       setVal('cfg_audio_gate_radius_miles', c.audio_gate_radius_miles || 0.5);
       setVal('cfg_audio_sync_offset_ms', c.audio_sync_offset_ms || 0);
+      setVal('cfg_audio_daemon_port', c.audio_daemon_port || 8090);
       setChk('cfg_viewer_source_obfuscate', c.viewer_source_obfuscate);
       setChk('cfg_pwa_admin_enabled', c.pwa_admin_enabled);
       setChk('cfg_pwa_viewer_enabled', c.pwa_viewer_enabled);

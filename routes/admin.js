@@ -231,6 +231,7 @@ router.put('/config', requireAdmin, (req, res) => {
     'audio_gate_enabled',
     'audio_gate_radius_miles',
     'audio_sync_offset_ms',
+    'audio_daemon_port',
     'viewer_source_obfuscate',
     'pwa_admin_enabled',
     'pwa_viewer_enabled',
