@@ -3183,48 +3183,38 @@
         });
 
         // ---- Coordinated play start ----
-        // Problem: canplaythrough fires at different times on different devices
-        // (faster devices buffer sooner). If we seek+play immediately, devices
-        // start at different song positions.
-        //
-        // Solution: after canplaythrough, wait for the next fppPosition event,
-        // then schedule play at a fixed server-time moment 600ms in the future.
-        // All devices that have buffered aim at the same server-time moment,
-        // seek to where FPP will be at that moment, and play simultaneously.
+        // Wait for the next fppSyncPoint event — broadcast every 2 seconds by
+        // the daemon. All devices that receive the SAME syncPoint event will:
+        // 1. Seek to the same position (positionSec + 600ms)
+        // 2. Play at the same server-time moment (serverTimestamp + 600ms)
+        // No per-device clock math — everything comes from the same daemon event.
         const myGeneration = playGeneration;
 
-        // Wait for a fresh fppPosition event (max 500ms)
-        const freshFppStatus = await new Promise((resolve) => {
+        const syncPoint = await new Promise((resolve) => {
           let resolved = false;
           const handler = (msg) => {
             if (!msg || !msg.playing) return;
             if (!resolved) { resolved = true; resolve(msg); }
           };
-          if (audioSock) audioSock.once('fppPosition', handler);
+          if (audioSock) audioSock.once('fppSyncPoint', handler);
+          // Fallback: if no syncPoint in 3s, use current fppStatus
           setTimeout(() => {
             if (!resolved) { resolved = true; resolve(fppStatus); }
-          }, 1500);
+          }, 3000);
         });
         if (playGeneration !== myGeneration) return;
 
-        // Coordinated play target — ALL devices must aim at the SAME absolute
-        // server-time moment. trackStartedAtMs is identical for all devices
-        // for this song. We pick the next 500ms boundary after "now + 800ms"
-        // measured from song start, so all devices that buffered within ~800ms
-        // of each other converge on the same target.
-        const serverNow = Date.now() + clockOffset;
-        const msSinceSongStart = serverNow - trackStartedAtMs;
-        // Next 500ms boundary at least 800ms from now
-        const intervalsElapsed = Math.ceil((msSinceSongStart + 800) / 500);
-        const playAtServerMs = trackStartedAtMs + (intervalsElapsed * 500);
-        const playAtClientMs = playAtServerMs - clockOffset;
+        if (!syncPoint || !syncPoint.positionSec) {
+          statusEl.textContent = 'Waiting for sync…';
+          currentSequence = null;
+          return;
+        }
 
-        // Seek to where FPP will be at the play moment.
-        // CRITICAL: derive ONLY from playAtServerMs and trackStartedAtMs —
-        // both are identical on all devices for this song. Using freshFppStatus
-        // here causes different seek positions because each device gets a
-        // different fppPosition event at a different time.
-        let targetPosition = (playAtServerMs - trackStartedAtMs) / 1000 - (audioSyncOffsetMs / 1000);
+        // All devices receiving this syncPoint compute identical values.
+        const LEAD_MS = 600;
+        const playAtServerMs = syncPoint.serverTimestamp + LEAD_MS;
+        const playAtClientMs = playAtServerMs - clockOffset;
+        let targetPosition = syncPoint.positionSec + (LEAD_MS / 1000) - (audioSyncOffsetMs / 1000);
 
         if (targetPosition < 0) targetPosition = 0;
         if (a.duration && targetPosition >= a.duration) {
@@ -3233,7 +3223,7 @@
         }
         a.currentTime = targetPosition;
         a._seekedTo = targetPosition;
-        a._seekFppTs = freshFppStatus ? new Date(freshFppStatus.serverTimestamp).toISOString().slice(14,22) : 'none';
+        a._seekFppTs = new Date(syncPoint.serverTimestamp).toISOString().slice(14,22);
 
         // Wait until the scheduled play moment
         const waitMs = Math.max(0, playAtClientMs - Date.now());
