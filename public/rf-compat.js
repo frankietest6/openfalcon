@@ -3479,7 +3479,10 @@
       if (pendingPostStartCorrectionAtMs > 0 && Date.now() >= pendingPostStartCorrectionAtMs) {
         pendingPostStartCorrectionAtMs = 0;
 
-        if (!useRelay) {
+        // Skip post-start correction when we have live FPP position from the
+        // daemon WebSocket — playbackRate correction handles drift continuously
+        // and more accurately. The seek snap would fight the playbackRate loop.
+        if (!useRelay && !fppStatus) {
         const POST_START_THRESHOLD_MS = 80;
         // Capture the audio element handle so a stopAudio()/track-change
         // mid-sampling doesn't snap a stale element. If htmlAudio gets
