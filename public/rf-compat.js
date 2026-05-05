@@ -3197,24 +3197,16 @@
         htmlAudio = a;
 
         if (useRelay) {
-          // Relay mode: schedule .play() at a fixed server-time moment so all
-          // phones start playback simultaneously regardless of when canplay fired.
+          // Relay mode: all phones schedule .play() at the same server-time moment.
+          // Use the serverNowMs already in data — no extra fetch needed.
+          // 1500ms window gives all phones time to buffer and reach this point.
           const myGeneration = playGeneration;
-          try {
-            const clockRes = await fetch(window.location.origin + '/api/now-playing-audio', {
-              signal: AbortSignal.timeout(1500),
-            });
-            if (playGeneration !== myGeneration) return; // cancelled by stopAudio/close/track-change
-            const clockData = clockRes.ok ? await clockRes.json() : null;
-            const serverNow = clockData?.serverNowMs || Date.now();
-            const clockOff = serverNow - Date.now();
-            const playAtClientMs = (serverNow + 500) - clockOff;
-            const waitMs = Math.max(0, playAtClientMs - Date.now());
-            await new Promise(r => setTimeout(r, waitMs));
-            if (playGeneration !== myGeneration) return; // cancelled during wait
-          } catch (_) {
-            if (playGeneration !== playGeneration) return;
-          }
+          const serverNow = data.serverNowMs || Date.now();
+          const clockOff = serverNow - Date.now();
+          const playAtClientMs = (serverNow + 1500) - clockOff;
+          const waitMs = Math.max(0, playAtClientMs - Date.now());
+          await new Promise(r => setTimeout(r, waitMs));
+          if (playGeneration !== myGeneration) return; // cancelled
         }
 
         await a.play();
@@ -3224,12 +3216,10 @@
         if (audioStartedAtMs === 0) audioStartedAtMs = Date.now();
       } catch (err) {
         if (useRelay) {
-          // Relay load failures on song change are normal — the daemon takes
-          // a moment to start. Show "Starting..." and let the poll loop retry
-          // via handleTrackChange on the next cycle rather than showing an error.
           console.info('[ShowPilot] relay not ready yet, poll loop will retry');
           statusEl.textContent = 'Starting…';
-          useRelay = false; // reset so next handleTrackChange re-evaluates
+          useRelay = false;
+          currentSequence = null; // force poll loop to retry handleTrackChange
           return;
         }
         statusEl.textContent = 'Load failed: ' + (err.message || err);
