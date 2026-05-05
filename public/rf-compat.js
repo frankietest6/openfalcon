@@ -3170,17 +3170,41 @@
           setTimeout(() => { if (!settled) { settled = true; reject(new Error('audio load timeout')); } }, 15000);
         });
 
-        // ---- Seek to current FPP position ----
+        // ---- Coordinated play start ----
+        // Problem: canplaythrough fires at different times on different devices
+        // (faster devices buffer sooner). If we seek+play immediately, devices
+        // start at different song positions.
+        //
+        // Solution: after canplaythrough, wait for the next fppPosition event,
+        // then schedule play at a fixed server-time moment 600ms in the future.
+        // All devices that have buffered aim at the same server-time moment,
+        // seek to where FPP will be at that moment, and play simultaneously.
         const myGeneration = playGeneration;
 
+        // Wait for a fresh fppPosition event (max 500ms)
+        const freshFppStatus = await new Promise((resolve) => {
+          let resolved = false;
+          const handler = (msg) => {
+            if (!msg || !msg.playing) return;
+            if (!resolved) { resolved = true; resolve(msg); }
+          };
+          audioSock.once('fppPosition', handler);
+          setTimeout(() => {
+            if (!resolved) { resolved = true; resolve(fppStatus); }
+          }, 500);
+        });
+        if (playGeneration !== myGeneration) return;
+
+        // Calculate a play target 600ms from now in server time
+        const playAtServerMs = (freshFppStatus?.serverTimestamp || (Date.now() + clockOffset)) + 600;
+        const playAtClientMs = playAtServerMs - clockOffset;
+
+        // Seek to where FPP will be at the play moment
         let targetPosition;
-        if (fppStatus && fppStatus.positionSec > 0 && fppStatus.serverTimestamp) {
-          // Seek to raw FPP position — don't add staleness here because
-          // the time between seek and actual play() output accounts for it.
-          // Adding staleness was causing ~800ms overshoot.
-          targetPosition = fppStatus.positionSec - (audioSyncOffsetMs / 1000);
+        if (freshFppStatus && freshFppStatus.positionSec > 0) {
+          const msUntilPlay = playAtServerMs - (freshFppStatus.serverTimestamp || (Date.now() + clockOffset));
+          targetPosition = freshFppStatus.positionSec + (msUntilPlay / 1000) - (audioSyncOffsetMs / 1000);
         } else {
-          // No live position — use server clock extrapolation with lead time
           const TARGET_LEAD_MS = 600;
           const targetServerStartMs = Date.now() + clockOffset + TARGET_LEAD_MS;
           if (livePosition && livePosition.sequence === currentSequence) {
@@ -3189,11 +3213,6 @@
           } else {
             targetPosition = (targetServerStartMs - trackStartedAtMs) / 1000 - (audioSyncOffsetMs / 1000);
           }
-          // Wait for the scheduled moment only when using extrapolation
-          const localTargetMs = targetServerStartMs - clockOffset;
-          const waitMs = Math.max(0, localTargetMs - Date.now());
-          if (waitMs > 0) await new Promise(r => setTimeout(r, waitMs));
-          if (playGeneration !== myGeneration) return;
         }
 
         if (targetPosition < 0) targetPosition = 0;
@@ -3202,7 +3221,13 @@
           return;
         }
         a.currentTime = targetPosition;
-        a._seekedTo = targetPosition; // for debug overlay
+        a._seekedTo = targetPosition;
+        a._seekFppTs = freshFppStatus ? new Date(freshFppStatus.serverTimestamp).toISOString().slice(14,22) : 'none';
+
+        // Wait until the scheduled play moment
+        const waitMs = Math.max(0, playAtClientMs - Date.now());
+        if (waitMs > 0) await new Promise(r => setTimeout(r, waitMs));
+        if (playGeneration !== myGeneration) return;
 
         htmlAudio = a;
         await a.play();
@@ -3466,6 +3491,7 @@
             `propagation: ${propagationMs}ms`,
             `clockOffset: ${Math.round(clockOffset)}ms`,
             `seekedTo:    ${(htmlAudio._seekedTo || 0).toFixed(3)}s`,
+            `seekFppTs:   ${htmlAudio._seekFppTs || 'none'}`,
           ].join('\n');
         }
 
