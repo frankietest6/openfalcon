@@ -3116,27 +3116,6 @@
           ? window.location.origin + data.relayUrl
           : (data.streamUrl ? window.location.origin + data.streamUrl : data.publicStreamUrl);
 
-        // If relay is flagged active but the daemon just started, retry briefly
-        // before falling back to cache. Avoids immediate load error on song change.
-        if (useRelay) {
-          const myGen = playGeneration;
-          let relayReady = false;
-          for (let i = 0; i < 5; i++) {
-            if (playGeneration !== myGen) return; // cancelled
-            try {
-              const r = await fetch(chosenUrl, { method: 'HEAD', signal: AbortSignal.timeout(600) });
-              if (r.status !== 503) { relayReady = true; break; }
-            } catch (_) {}
-            await new Promise(r => setTimeout(r, 400));
-          }
-          if (!relayReady) {
-            useRelay = false;
-            chosenUrl = data.streamUrl
-              ? window.location.origin + data.streamUrl
-              : data.publicStreamUrl;
-          }
-        }
-
         if (!chosenUrl) {
           statusEl.textContent = 'No audio source available';
           return;
@@ -3244,12 +3223,14 @@
         statusEl.textContent = '';
         if (audioStartedAtMs === 0) audioStartedAtMs = Date.now();
       } catch (err) {
-        // On relay mode, a load error at song change is usually the relay
-        // starting up — wait 2s and let the poll loop retry via handleTrackChange.
-        if (useRelay && err.message && err.message.includes('load')) {
-          console.info('[ShowPilot] relay load error on song change, poll loop will retry');
+        if (useRelay) {
+          // Relay load failures on song change are normal — the daemon takes
+          // a moment to start. Show "Starting..." and let the poll loop retry
+          // via handleTrackChange on the next cycle rather than showing an error.
+          console.info('[ShowPilot] relay not ready yet, poll loop will retry');
           statusEl.textContent = 'Starting…';
-          return; // don't show error, just wait for next poll
+          useRelay = false; // reset so next handleTrackChange re-evaluates
+          return;
         }
         statusEl.textContent = 'Load failed: ' + (err.message || err);
         console.warn('[ShowPilot] HTML5 audio load failed:', err);
