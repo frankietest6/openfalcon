@@ -838,6 +838,7 @@ router.get('/now-playing-audio', (req, res) => {
     // is not active (503 response). Relay is same-origin only (LAN/local listeners);
     // external listeners use publicStreamUrl which goes through the cache path.
     relayUrl: `/api/audio-relay/${encodeURIComponent(seq.name)}`,
+    relayActive: (() => { try { return require('../lib/audio-relay').getActiveSequence() === seq.name; } catch(_) { return false; } })(),
     // Per-show sync offset in milliseconds. Positive = play audio LATER
     // (compensates for audio arriving too early — the typical case after
     // the cache change, since cache delivery is faster than the previous

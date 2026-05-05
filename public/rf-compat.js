@@ -3094,34 +3094,17 @@
       // network latency variance (a few tens of ms on LAN) — far better
       // than the multi-hundred-ms drift we saw with Web Audio scheduling.
       // Try the live relay first — one FPP connection fanned to all listeners
-      // gives automatic sync without offset math. If the relay isn't active
-      // (between songs, not yet started, 503 response), fall through to the
-      // cache/proxy path which handles late joiners and external listeners.
+      // gives automatic sync without offset math. Connect directly with GET;
+      // if the relay isn't active the server returns 503 and we fall back to
+      // the cache path. No separate HEAD probe — that would open a dead
+      // connection on the relay and stagger phone join times.
       let useRelay = false;
-      if (data.relayUrl) {
-        try {
-          const probe = await fetch(window.location.origin + data.relayUrl, {
-            method: 'HEAD',
-            credentials: 'include',
-            signal: AbortSignal.timeout(1500),
-          });
-          // 200 means relay is live; anything else (503 = not active) means fall back
-          useRelay = probe.ok;
-        } catch (_) {
-          useRelay = false;
-        }
-      }
-
       const urlsToTry = [];
-      if (useRelay && data.relayUrl) {
-        // Relay is live — use it. Skip the cache URL entirely so all phones
-        // share the same byte stream and sync is automatic.
-        urlsToTry.push(window.location.origin + data.relayUrl);
-      } else {
-        // Relay not available — fall back to cache/proxy as before.
-        if (data.streamUrl) urlsToTry.push(window.location.origin + data.streamUrl);
-        if (data.publicStreamUrl) urlsToTry.push(data.publicStreamUrl);
+      if (data.relayUrl) {
+        urlsToTry.push({ url: window.location.origin + data.relayUrl, isRelay: true });
       }
+      if (data.streamUrl) urlsToTry.push({ url: window.location.origin + data.streamUrl, isRelay: false });
+      if (data.publicStreamUrl) urlsToTry.push({ url: data.publicStreamUrl, isRelay: false });
       if (urlsToTry.length === 0) {
         statusEl.textContent = 'No audio source';
         return;
@@ -3135,10 +3118,23 @@
           try { htmlAudio.pause(); htmlAudio.src = ''; htmlAudio.load(); } catch {}
           htmlAudio = null;
         }
+
+        // Server tells us directly whether the relay is active via relayActive flag.
+        // No probe needed — avoids opening a dead streaming connection on the relay.
+        useRelay = !!(data.relayActive && data.relayUrl);
+        const chosenUrl = useRelay
+          ? window.location.origin + data.relayUrl
+          : (data.streamUrl ? window.location.origin + data.streamUrl : data.publicStreamUrl);
+
+        if (!chosenUrl) {
+          statusEl.textContent = 'No audio source available';
+          return;
+        }
+
         const a = new Audio();
         a.preload = 'auto';
         a.crossOrigin = 'anonymous';  // allow Web Audio to tap if we ever need it again
-        a.src = urlsToTry[0];
+        a.src = chosenUrl;
         a.muted = isMuted;
         a.volume = 1;
 
