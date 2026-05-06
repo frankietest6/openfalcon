@@ -3527,17 +3527,18 @@
 
         // playbackRate-only correction — no repeated seeks which cause audio glitches.
         // Exception: one-time snap seek in the first 3 seconds if drift is large.
-        // A single seek during initial playback is inaudible.
+        // Add 200ms lead to account for time between seek and audio output.
         if (Math.abs(driftMs) > 300 && Date.now() - audioStartedAtMs < 3000 && !htmlAudio._startupSeeked) {
           htmlAudio._startupSeeked = true;
+          const snapTarget = fppPositionNow + 0.2; // 200ms lead for seek latency
           try {
-            htmlAudio.currentTime = fppPositionNow;
+            htmlAudio.currentTime = snapTarget;
             htmlAudio.playbackRate = 1.0;
-            console.info('[ShowPilot] startup snap:', driftMs, 'ms → seeking to', fppPositionNow.toFixed(3), 's');
+            console.info('[ShowPilot] startup snap:', driftMs, 'ms → seeking to', snapTarget.toFixed(3), 's');
           } catch (_) {}
         } else if (Math.abs(driftMs) > 150) {
-          // Proportional: max 0.5% — inaudible but still corrects over time
-          const correction = Math.min(Math.abs(driftMs) / 100000, 0.005);
+          // Proportional: max 1% — still inaudible, corrects 235ms in ~25 seconds
+          const correction = Math.min(Math.abs(driftMs) / 50000, 0.01);
           htmlAudio.playbackRate = driftMs > 0 ? (1.0 - correction) : (1.0 + correction);
         } else {
           htmlAudio.playbackRate = 1.0;
