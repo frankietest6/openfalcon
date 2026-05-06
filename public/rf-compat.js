@@ -2697,6 +2697,23 @@
         try {
           if (window.io) {
             audioSock = window.io();
+
+            // Persistent fppSyncPoint handler — resolves pending syncPoint
+            // promises from handleTrackChange. Must be registered here where
+            // audioSock is valid, not in handleTrackChange where it may be null.
+            audioSock.on('fppSyncPoint', (msg) => {
+              if (!msg || !msg.playing) return;
+              if (msg.serverTimestamp) {
+                const measured = msg.serverTimestamp - Date.now();
+                clockOffset = clockOffset * 0.95 + measured * 0.05;
+              }
+              // Resolve any pending syncPoint promise
+              if (typeof window._pendingSyncPointResolver === 'function') {
+                window._pendingSyncPointResolver(msg);
+                window._pendingSyncPointResolver = null;
+              }
+              window._lastSyncPoint = msg;
+            });
             audioSock.on('positionUpdate', (msg) => {
               if (!msg || !msg.sequence) return;
               if (currentSequence && msg.sequence !== currentSequence) return;
@@ -3112,25 +3129,18 @@
     async function handleTrackChange(data) {
       currentSequence = data.sequenceName;
 
-      // Register syncPoint listener IMMEDIATELY — before buffering starts.
-      // The syncPoint fires 3-4 seconds after song start. If we wait until
-      // canplaythrough to register, we might miss it. Register now and store
-      // the result for use after canplaythrough.
-      let pendingSyncPoint = null;
-      let syncPointResolver = null;
+      // Register syncPoint resolver via window-level variable so it works
+      // even when audioSock isn't initialized yet (first song load).
+      // The persistent handler in startup() will call this resolver.
+      let pendingSyncPoint = window._lastSyncPoint || null;
       const syncPointPromise = new Promise((resolve) => {
-        syncPointResolver = resolve;
-      });
-      const syncPointHandler = (msg) => {
-        if (!msg || !msg.playing) return;
-        if (msg.serverTimestamp) {
-          const measured = msg.serverTimestamp - Date.now();
-          clockOffset = clockOffset * 0.95 + measured * 0.05;
+        // If we already have a recent syncPoint for this song, use it
+        if (pendingSyncPoint && pendingSyncPoint.filename === data.mediaName) {
+          resolve(pendingSyncPoint);
+          return;
         }
-        pendingSyncPoint = msg;
-        if (syncPointResolver) { syncPointResolver(msg); syncPointResolver = null; }
-      };
-      if (audioSock) audioSock.once('fppSyncPoint', syncPointHandler);
+        window._pendingSyncPointResolver = resolve;
+      });
 
       // Seed fppStatus from now-playing-audio response so we always have
       // a position to fall back to even if no fppPosition WS event has
