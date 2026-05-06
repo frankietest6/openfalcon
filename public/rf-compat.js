@@ -2402,6 +2402,7 @@
     let htmlAudio = null;
     let useRelay = false;  // true when audio is coming from the live relay stream
     let fppStatus = null;  // latest FPP position from daemon WebSocket
+    let smoothedDriftMs = 0; // exponentially smoothed drift for stable correction
     let audioSock = null;  // Socket.io connection for position updates
     // Expose for debugging
     window._spDebug = () => ({
@@ -3433,6 +3434,7 @@
     function stopAudio() {
       playGeneration++; // cancel any in-flight scheduled play
       fppStatus = null; // clear FPP position so drift correction stops
+      smoothedDriftMs = 0;
       if (currentSource) {
         try { currentSource.stop(); } catch {}
         try { currentSource.disconnect(); } catch {}
@@ -3512,6 +3514,10 @@
         const drift = htmlAudio.currentTime - fppPositionNow;
         const driftMs = Math.round(drift * 1000);
 
+        // Smooth the drift measurement to prevent oscillation from 500ms
+        // FIFO update jitter. α=0.3 means 70% old value, 30% new measurement.
+        smoothedDriftMs = smoothedDriftMs * 0.7 + driftMs * 0.3;
+
         if (driftEl) {
           const absMs = Math.abs(driftMs);
           const syncPtShort = htmlAudio._syncPointTs ? String(htmlAudio._syncPointTs).slice(-6) : 'none';
@@ -3537,26 +3543,21 @@
           ].join('\n');
         }
 
-        // playbackRate-only correction — no repeated seeks which cause audio glitches.
-        // Exception: one-time snap seek in the first 3 seconds if drift is large.
-        // Add 200ms lead to account for time between seek and audio output.
-        if (Math.abs(driftMs) > 300 && Date.now() - audioStartedAtMs < 3000 && !htmlAudio._startupSeeked) {
+        // Apply correction based on smoothed drift — prevents oscillation
+        const correctionDriftMs = Math.round(smoothedDriftMs);
+        if (Math.abs(correctionDriftMs) > 300 && Date.now() - audioStartedAtMs < 3000 && !htmlAudio._startupSeeked) {
           htmlAudio._startupSeeked = true;
-          const snapTarget = fppPositionNow + 0.2; // 200ms lead for seek latency
+          const snapTarget = fppPositionNow + 0.2;
           try {
             htmlAudio.currentTime = snapTarget;
             htmlAudio.playbackRate = 1.0;
-            console.info('[ShowPilot] startup snap:', driftMs, 'ms → seeking to', snapTarget.toFixed(3), 's');
+            smoothedDriftMs = 0;
+            console.info('[ShowPilot] startup snap:', correctionDriftMs, 'ms → seeking to', snapTarget.toFixed(3), 's');
           } catch (_) {}
-        } else if (Math.abs(driftMs) > 50) {
-          // Proportional correction — scales with drift, max 5%
-          // At 500ms drift: 5% → corrects in ~10 seconds
-          // At 100ms drift: 1% → corrects in ~10 seconds  
-          // At 50ms drift: within dead zone, no correction
-          const correction = Math.min(Math.abs(driftMs) / 10000, 0.05);
-          htmlAudio.playbackRate = driftMs > 0 ? (1.0 - correction) : (1.0 + correction);
+        } else if (Math.abs(correctionDriftMs) > 50) {
+          const correction = Math.min(Math.abs(correctionDriftMs) / 20000, 0.02);
+          htmlAudio.playbackRate = correctionDriftMs > 0 ? (1.0 - correction) : (1.0 + correction);
         } else {
-          // Within 50ms dead zone — close enough, stop correcting
           htmlAudio.playbackRate = 1.0;
         }
         return;
