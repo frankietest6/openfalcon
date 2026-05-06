@@ -2412,6 +2412,19 @@
       if (saved) deviceOffset = parseFloat(saved) || 0;
       console.log('[ShowPilot] device offset loaded:', deviceOffset, 'ms');
     } catch (_) {}
+
+    // Measure hardware output latency via Web Audio API
+    // This gives us the exact time from browser to speakers without calibration
+    try {
+      const tmpCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const hwLatencyMs = Math.round((tmpCtx.outputLatency || tmpCtx.baseLatency || 0) * 1000);
+      tmpCtx.close().catch(() => {});
+      if (hwLatencyMs > 0 && Math.abs(deviceOffset) < 10) {
+        // Only apply if we don't have a calibrated offset yet
+        deviceOffset = hwLatencyMs;
+        console.log('[ShowPilot] hardware output latency:', hwLatencyMs, 'ms');
+      }
+    } catch (_) {}
     let audioSock = null;  // Socket.io connection for position updates
     // Expose for debugging
     window._spDebug = () => ({
