@@ -2714,11 +2714,6 @@
         pollTimer = setInterval(syncOnce, 1000);
         // Drift correction loop (cheap — just compares client clock to expected)
         driftTimer = setInterval(updateDriftDisplay, 250);
-        // Refresh clock offset every 30s with a short burst. Clock drift on
-        // most devices is a few ms/minute, but phones waking from sleep or
-        // switching networks can suddenly jump by a lot. Cheap to keep
-        // current rather than discover staleness when sync goes off.
-        setInterval(() => syncClockBurst(3), 30000);
 
         // Subscribe to live position updates from the server. The plugin
         // pushes "FPP is at position X.Y" via /api/plugin/position; the
@@ -2729,6 +2724,15 @@
         try {
           if (window.io) {
             audioSock = window.io();
+
+            // Re-sync clock via Socket.io now that connection is established.
+            // Socket.io ping bypasses Cloudflare HTTP overhead for much better accuracy.
+            syncClockBurst(5).then(() => {
+              console.log('[ShowPilot] Socket.io timesync complete, clockOffset:', Math.round(clockOffset), 'ms');
+            });
+
+            // Re-sync every 30s continuously
+            setInterval(() => syncClockBurst(3), 30000);
 
             // Persistent fppSyncPoint handler — resolves pending syncPoint
             // promises from handleTrackChange. Must be registered here where
@@ -3023,10 +3027,52 @@
     // separate connection just for this.
     let lastClockSyncAt = 0;
     async function syncClockBurst(burstSize = 5) {
+      // Use Socket.io timesync for accurate clock offset measurement.
+      // Socket.io bypasses Cloudflare HTTP overhead giving 5-20ms accuracy
+      // vs 50-200ms for HTTP. We fire parallel queries and take the best.
+      if (audioSock && audioSock.connected) {
+        return new Promise((resolve) => {
+          const samples = [];
+          let pending = burstSize;
+
+          const handler = (msg) => {
+            const t4 = Date.now();
+            const rtt = t4 - msg.t1;
+            const offset = ((msg.t2 - msg.t1) + (msg.t3 - t4)) / 2;
+            samples.push({ rtt, offset });
+            pending--;
+            if (pending === 0) {
+              audioSock.off('timesync', handler);
+              // Pick lowest-RTT sample — most accurate
+              samples.sort((a, b) => a.rtt - b.rtt);
+              const best = samples.slice(0, Math.ceil(samples.length / 2));
+              const offsets = best.map(s => s.offset).sort((a, b) => a - b);
+              const mid = Math.floor(offsets.length / 2);
+              clockOffset = offsets.length % 2 === 1
+                ? offsets[mid]
+                : (offsets[mid - 1] + offsets[mid]) / 2;
+              lastClockSyncAt = Date.now();
+              console.log('[ShowPilot] timesync complete, clockOffset:', Math.round(clockOffset), 'ms (best RTT:', samples[0].rtt, 'ms)');
+              resolve();
+            }
+          };
+          audioSock.on('timesync', handler);
+
+          // Fire all queries in parallel
+          for (let i = 0; i < burstSize; i++) {
+            audioSock.emit('timesync', { t1: Date.now() });
+          }
+
+          // Fallback timeout
+          setTimeout(() => {
+            audioSock.off('timesync', handler);
+            resolve();
+          }, 3000);
+        });
+      }
+
+      // Fallback: HTTP-based sync when Socket.io not ready yet
       const samples = [];
-      // Fire requests in PARALLEL — sequential would just sample at the
-      // same network condition each time. Parallel exposes the variance
-      // so outlier filtering can do its job.
       const promises = [];
       for (let i = 0; i < burstSize; i++) {
         promises.push((async () => {
@@ -3041,33 +3087,18 @@
               const offset = data.t + oneWay - t1;
               samples.push({ rtt, offset });
             }
-          } catch (e) {
-            // Silently drop failed pings — we just have fewer samples.
-          }
+          } catch (e) {}
         })());
       }
       await Promise.all(promises);
-
-      if (samples.length === 0) return; // bail if all failed
-      // Sort by RTT ascending — lowest RTT samples have tightest one-way
-      // latency estimate (network was quiet, less asymmetry to worry about).
+      if (samples.length === 0) return;
       samples.sort((a, b) => a.rtt - b.rtt);
-      // Keep the best half (or all if we have <4 samples).
       const keep = samples.length >= 4 ? samples.slice(0, Math.ceil(samples.length / 2)) : samples;
-      // Use the MEDIAN offset from the kept samples, not the mean (v0.28.2).
-      // On cellular networks, even after RTT-based outlier filtering, a
-      // single sample can still be biased by event-loop lag or momentary
-      // scheduling glitches on either end. Mean is sensitive to that one
-      // bad sample; median ignores it. With 2-3 kept samples the median
-      // and mean usually agree within a few ms; the win is when one of
-      // the "best" samples is still a lemon.
       const offsets = keep.map(s => s.offset).sort((a, b) => a - b);
       const mid = Math.floor(offsets.length / 2);
-      const medianOffset = offsets.length % 2 === 1
+      clockOffset = offsets.length % 2 === 1
         ? offsets[mid]
         : (offsets[mid - 1] + offsets[mid]) / 2;
-
-      clockOffset = medianOffset;
       lastClockSyncAt = Date.now();
     }
 

@@ -663,6 +663,15 @@ app.get('/health', (req, res) => {
 io.on('connection', socket => {
   // Viewers can emit 'subscribe' to confirm they want updates (noop for now)
   socket.on('subscribe', () => socket.emit('subscribed'));
+
+  // NTP-style time sync via Socket.io — much more accurate than HTTP /api/time
+  // because it bypasses Cloudflare's HTTP processing overhead and has lower,
+  // more consistent latency. Viewer sends {t1} and we echo back {t1, t2, t3}
+  // immediately. Viewer computes: offset = ((t2-t1) + (t3-t4)) / 2
+  socket.on('timesync', (msg) => {
+    const t2 = Date.now();
+    socket.emit('timesync', { t1: msg.t1, t2, t3: Date.now() });
+  });
 });
 
 // ============================================================
