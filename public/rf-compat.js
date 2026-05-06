@@ -3228,7 +3228,7 @@
         }
         a.currentTime = targetPosition;
         a._seekedTo = targetPosition;
-        a._seekFppTs = new Date(syncPoint.serverTimestamp).toISOString().slice(14,22);
+        a._seekFppTs = syncPoint?.serverTimestamp ? new Date(syncPoint.serverTimestamp).toISOString().slice(14,22) : 'none';
 
         // Wait until the scheduled play moment
         const waitMs = Math.max(0, playAtClientMs - Date.now());
