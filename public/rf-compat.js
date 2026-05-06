@@ -3684,83 +3684,9 @@
           ].join('\n');
         }
 
-        // ---- Web Audio crossfade correction ----
-        // If drift exceeds threshold, create a new AudioBufferSourceNode at
-        // the correct position and crossfade to it in 50ms. This is completely
-        // inaudible (PulseMesh uses the same technique) and corrects any drift
-        // instantly without playbackRate pitch artifacts.
-        const CROSSFADE_THRESHOLD_MS = 150; // only correct large drifts
-        const CROSSFADE_DURATION = 0.05;   // 50ms crossfade
-
-        if (htmlAudio._isWebAudio && currentBuffer && audioCtx && audioCtx.state === 'running') {
-          if (Math.abs(correctionDriftMs) > CROSSFADE_THRESHOLD_MS &&
-              !htmlAudio._crossfading &&
-              audioCtx.currentTime - lastCrossfadeAtCtx > 10.0) {
-
-            htmlAudio._crossfading = true;
-            lastCrossfadeAtCtx = audioCtx.currentTime;
-            const targetSec = fppPositionNow + CROSSFADE_DURATION + 0.05; // lead for fade + processing
-            console.log('[ShowPilot] crossfade correction:', correctionDriftMs, 'ms → target', targetSec.toFixed(3) + 's');
-
-            try {
-              // Create new source at correct position
-              const newSrc = audioCtx.createBufferSource();
-              newSrc.buffer = currentBuffer;
-              const newGain = audioCtx.createGain();
-              newGain.gain.value = 0;
-              newSrc.connect(newGain);
-              newGain.connect(gainNode);
-
-              const now = audioCtx.currentTime;
-              newSrc.start(now, Math.max(0, targetSec));
-
-              // Fade in new source, fade out old source
-              if (currentSourceGain) {
-                currentSourceGain.gain.setValueAtTime(1, now);
-                currentSourceGain.gain.linearRampToValueAtTime(0, now + CROSSFADE_DURATION);
-              }
-              newGain.gain.setValueAtTime(0, now);
-              newGain.gain.linearRampToValueAtTime(1, now + CROSSFADE_DURATION);
-
-              // After crossfade, stop old source and update tracking
-              setTimeout(() => {
-                if (currentSource) {
-                  try { currentSource.stop(); currentSource.disconnect(); } catch {}
-                }
-                if (currentSourceGain) {
-                  try { currentSourceGain.disconnect(); } catch {}
-                }
-                currentSource = newSrc;
-                currentSourceGain = newGain;
-                // Update position tracking: new source started at `now` playing from `targetSec`
-                trackScheduledAtAudioCtx = now;
-                trackScheduledAtPositionSec = targetSec;
-                if (htmlAudio) {
-                  htmlAudio._seekedTo = targetSec;
-                  htmlAudio._crossfading = false;
-                  smoothedDriftMs = 0;
-                }
-                newSrc.onended = () => {
-                  if (currentSource === newSrc) {
-                    currentSource = null; currentSourceGain = null;
-                    if (htmlAudio) htmlAudio.paused = true;
-                  }
-                };
-              }, CROSSFADE_DURATION * 1000 + 50);
-            } catch (e) {
-              console.warn('[ShowPilot] crossfade failed:', e.message);
-              if (htmlAudio) htmlAudio._crossfading = false;
-            }
-          }
-        } else if (!htmlAudio._isWebAudio) {
-          // Legacy HTML5 fallback
-          if (Math.abs(correctionDriftMs) > 100) {
-            const correction = Math.min(Math.abs(correctionDriftMs) / 100000, 0.003);
-            htmlAudio.playbackRate = correctionDriftMs > 0 ? (1.0 - correction) : (1.0 + correction);
-          } else {
-            htmlAudio.playbackRate = 1.0;
-          }
-        }
+        // No active drift correction — devices sync at song start via
+        // syncPoint coordination. Fixed offset to FPP speakers tuned via
+        // audioSyncOffsetMs in admin settings.
         return;
       }
 
