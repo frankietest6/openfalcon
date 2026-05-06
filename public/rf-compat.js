@@ -3192,21 +3192,13 @@
 
       stopAudio();
 
-      // ---- HTML5 audio playback (v0.22.0+) ----
-      // We switched away from Web Audio API (decodeAudioData + BufferSource)
-      // because it pushed all timing burden onto each phone independently:
-      // each phone bought its own audio clock, computed its own playback
-      // position, and applied its own corrections — leading to phones
-      // drifting from each OTHER even when each one was correctly synced
-      // to FPP. HTML5 <audio src=...> hands timing to the browser, which
-      // plays back at native 1.0x rate from a Range-seeked start point.
-      // Two phones fetching the same source file at the same wall-clock
-      // moment, seeked to the same position, drift apart only by their
-      // network latency variance (a few tens of ms on LAN) — far better
-      // than the multi-hundred-ms drift we saw with Web Audio scheduling.
-      // Cache path only — relay caused too many issues (slow load, sync problems,
-      // Cloudflare streaming kills). Cache + wall-clock scheduled start gives
-      // the best sync between devices.
+      // ---- Web Audio API BufferSource playback ----
+      // Fetch the full audio file as ArrayBuffer, decode to PCM, then play
+      // via AudioBufferSourceNode. This matches PulseMesh's architecture:
+      // - Clean crossfade seeks (no decoder restart artifacts)
+      // - Sub-millisecond position tracking via audioCtx.currentTime
+      // - AudioContext clock doesn't drift when phone screen locks
+      // - Hardware output latency measurable via audioCtx.outputLatency
       useRelay = false;
 
       try {
@@ -3214,6 +3206,16 @@
           try { htmlAudio.pause(); htmlAudio.src = ''; htmlAudio.load(); } catch {}
           htmlAudio = null;
         }
+        // Stop any existing Web Audio source
+        if (currentSource) {
+          try { currentSource.stop(); currentSource.disconnect(); } catch {}
+          currentSource = null;
+        }
+        if (currentSourceGain) {
+          try { currentSourceGain.disconnect(); } catch {}
+          currentSourceGain = null;
+        }
+        currentBuffer = null;
 
         const chosenUrl = data.streamUrl
           ? window.location.origin + data.streamUrl
@@ -3224,28 +3226,20 @@
           return;
         }
 
-        const a = new Audio();
-        a.preload = 'auto';
-        a.crossOrigin = 'anonymous';
-        console.info('[ShowPilot] audio source: CACHE', chosenUrl);
-        a.src = chosenUrl;
-        a.muted = isMuted;
-        a.volume = 1;
+        console.info('[ShowPilot] audio source: CACHE (WebAudio)', chosenUrl);
+        statusEl.textContent = 'Loading audio…';
 
-        // Wait for enough data. canplaythrough is more conservative than canplay —
-        // fires when the browser believes it has enough buffered to play to the end.
-        // We need this because the wall-clock scheduling below assumes .play() will
-        // start audio output immediately; if buffer runs out mid-play that breaks sync.
-        await new Promise((resolve, reject) => {
-          let settled = false;
-          const onReady = () => { if (!settled) { settled = true; resolve(); } };
-          const onErr = () => { if (!settled) { settled = true; reject(new Error('audio load failed')); } };
-          a.addEventListener('canplaythrough', onReady, { once: true });
-          // Fallback to canplay if canplaythrough doesn't fire in 3s
-          setTimeout(() => a.addEventListener('canplay', onReady, { once: true }), 3000);
-          a.addEventListener('error', onErr, { once: true });
-          setTimeout(() => { if (!settled) { settled = true; reject(new Error('audio load timeout')); } }, 15000);
+        // Fetch entire file as ArrayBuffer
+        const fetchResp = await fetch(chosenUrl);
+        if (!fetchResp.ok) throw new Error('HTTP ' + fetchResp.status);
+        const arrayBuf = await fetchResp.arrayBuffer();
+
+        // Decode to PCM — this is the key step that enables clean seeking
+        const audioBuffer = await new Promise((resolve, reject) => {
+          audioCtx.decodeAudioData(arrayBuf, resolve, reject);
         });
+        currentBuffer = audioBuffer;
+        console.info('[ShowPilot] audio decoded:', audioBuffer.duration.toFixed(2) + 's', audioBuffer.sampleRate + 'Hz');
 
         // ---- Coordinated play start ----
         // syncPointPromise was registered at track change start (before buffering)
@@ -3264,56 +3258,104 @@
         console.log('[ShowPilot] got syncPoint:', syncPoint ? syncPoint.positionSec?.toFixed(2) + 's ts=' + syncPoint.serverTimestamp : 'null');
         if (playGeneration !== myGeneration) return;
 
-        // If no syncPoint arrived, fall back to fppStatus or trackStartedAtMs
-        const LEAD_MS = 800;
-        let targetPosition;
-        let playAtClientMs;
+        // Determine start position and when to play
+        let startPositionSec;
+        let playAtCtxTime; // audioCtx.currentTime when to start
 
-        if (syncPoint && syncPoint.positionSec > 0) {
-          // Grid-clock coordination: snap to the next 2-second server-time
-          // boundary that's at least 500ms away. All devices that receive
-          // ANY syncPoint within a 2-second window will compute the SAME
-          // playAtServerMs, guaranteeing they play at the same moment.
+        // Measure hardware output latency
+        const outputLatencySec = audioCtx.outputLatency || audioCtx.baseLatency || 0;
+
+        if (syncPoint && syncPoint.positionSec >= 0) {
+          // Use syncPoint + grid clock for coordinated start
           const serverNow = syncPoint.serverTimestamp;
           const gridMs = 2000;
           const minPlayAt = serverNow + 500;
           const playAtServerMs = Math.ceil(minPlayAt / gridMs) * gridMs;
-          playAtClientMs = playAtServerMs - clockOffset;
-
-          // Seek to where FPP will be at the grid-clock play moment
           const msUntilPlay = playAtServerMs - serverNow;
-          targetPosition = syncPoint.positionSec + (msUntilPlay / 1000) - (audioSyncOffsetMs / 1000);
+          const waitSec = msUntilPlay / 1000;
+
+          startPositionSec = syncPoint.positionSec + waitSec - (audioSyncOffsetMs / 1000) - (deviceOffset / 1000);
+          // Schedule playback: current audioCtx time + wait duration + output latency compensation
+          playAtCtxTime = audioCtx.currentTime + waitSec + outputLatencySec;
+
+          // Wait until the scheduled server moment
+          const waitMs = Math.max(0, (playAtServerMs - clockOffset) - Date.now());
+          if (waitMs > 0) await new Promise(r => setTimeout(r, waitMs));
         } else {
-          // No syncPoint — use best available position and play immediately
+          // Fallback: use fppStatus or trackStartedAtMs
           const pos = fppStatus?.positionSec || Math.max(0, (Date.now() + clockOffset - trackStartedAtMs) / 1000);
-          playAtClientMs = Date.now() + 200;
-          targetPosition = pos + 0.2 - (audioSyncOffsetMs / 1000);
+          startPositionSec = pos + 0.1 - (audioSyncOffsetMs / 1000) - (deviceOffset / 1000);
+          playAtCtxTime = audioCtx.currentTime + 0.1 + outputLatencySec;
         }
 
-        if (targetPosition < 0) targetPosition = 0;
-        if (a.duration && targetPosition >= a.duration) {
+        if (playGeneration !== myGeneration) return;
+
+        if (startPositionSec < 0) startPositionSec = 0;
+        if (startPositionSec >= audioBuffer.duration) {
           statusEl.textContent = 'Waiting for next track…';
           return;
         }
-        a.currentTime = targetPosition;
-        a._seekedTo = targetPosition;
-        a._seekFppTs = syncPoint?.serverTimestamp ? new Date(syncPoint.serverTimestamp).toISOString().slice(14,22) : 'none';
-        a._syncPointTs = syncPoint?.serverTimestamp ? syncPoint.serverTimestamp : 'none';
 
-        // Wait until the scheduled play moment
-        const waitMs = Math.max(0, playAtClientMs - Date.now());
-        if (waitMs > 0) await new Promise(r => setTimeout(r, waitMs));
-        if (playGeneration !== myGeneration) return;
+        // ---- Schedule AudioBufferSourceNode ----
+        // Record scheduling anchor for position tracking
+        trackScheduledAtAudioCtx = playAtCtxTime;
+        trackScheduledAtPositionSec = startPositionSec;
+        trackScheduledOutputLatency = outputLatencySec;
 
-        htmlAudio = a;
-        await a.play();
-        pendingPostStartCorrectionAtMs = Date.now() + 1000;
+        // Create source + per-source gain node (needed for crossfade)
+        const srcNode = audioCtx.createBufferSource();
+        srcNode.buffer = audioBuffer;
+        const srcGain = audioCtx.createGain();
+        srcGain.gain.value = 1;
+        srcNode.connect(srcGain);
+        srcGain.connect(gainNode);
+
+        // Schedule playback at the precise audioCtx time
+        srcNode.start(playAtCtxTime, startPositionSec);
+
+        currentSource = srcNode;
+        currentSourceGain = srcGain;
+
+        // Use a dummy htmlAudio object for compatibility with drift display
+        // and other code that checks htmlAudio
+        htmlAudio = {
+          _isWebAudio: true,
+          _seekedTo: startPositionSec,
+          _seekFppTs: syncPoint?.serverTimestamp ? new Date(syncPoint.serverTimestamp).toISOString().slice(14,22) : 'none',
+          _syncPointTs: syncPoint?.serverTimestamp || 'none',
+          _startupSeeked: false,
+          _microSeekCooldown: false,
+          paused: false,
+          muted: isMuted,
+          volume: 1,
+          playbackRate: 1,
+          duration: audioBuffer.duration,
+          get currentTime() {
+            if (!audioCtx || audioCtx.state === 'suspended') return startPositionSec;
+            const elapsed = audioCtx.currentTime - playAtCtxTime;
+            return startPositionSec + Math.max(0, elapsed);
+          },
+          set currentTime(v) { /* crossfade seeks handled by drift correction */ },
+        };
+
         setPlayIcon(true);
         statusEl.textContent = '';
-        if (audioStartedAtMs === 0) audioStartedAtMs = Date.now();
+        audioStartedAtMs = Date.now();
+        pendingPostStartCorrectionAtMs = 0;
+
+        console.info('[ShowPilot] WebAudio scheduled at', playAtCtxTime.toFixed(3), 'ctx sec, position', startPositionSec.toFixed(3) + 's');
+
+        srcNode.onended = () => {
+          if (currentSource === srcNode) {
+            currentSource = null;
+            currentSourceGain = null;
+            if (htmlAudio && htmlAudio._isWebAudio) htmlAudio.paused = true;
+          }
+        };
+
       } catch (err) {
         statusEl.textContent = 'Load failed: ' + (err.message || err);
-        console.warn('[ShowPilot] HTML5 audio load failed:', err);
+        console.warn('[ShowPilot] WebAudio load failed:', err);
       }
     }
 
@@ -3472,9 +3514,7 @@
       playGeneration++; // cancel any in-flight scheduled play
       fppStatus = null;
       smoothedDriftMs = 0;
-      // Only reset calibration samples if not yet calibrated
       if (calibrationSamples.length < 20) calibrationSamples = [];
-      if (htmlAudio) htmlAudio._microSeekCooldown = false;
       if (currentSource) {
         try { currentSource.stop(); } catch {}
         try { currentSource.disconnect(); } catch {}
@@ -3484,13 +3524,12 @@
         try { currentSourceGain.disconnect(); } catch {}
         currentSourceGain = null;
       }
-      if (htmlAudio) {
-        try { htmlAudio.playbackRate = 1.0; } catch (_) {}
-        htmlAudio._startupSeeked = false;
+      if (htmlAudio && !htmlAudio._isWebAudio) {
         try { htmlAudio.pause(); } catch {}
         try { htmlAudio.src = ''; htmlAudio.load(); } catch {}
-        htmlAudio = null;
       }
+      htmlAudio = null;
+      currentBuffer = null;
       trackScheduledAtAudioCtx = 0;
       trackScheduledAtPositionSec = 0;
       trackScheduledOutputLatency = 0;
@@ -3576,6 +3615,7 @@
         // Smooth the drift measurement to prevent oscillation from 500ms
         // FIFO update jitter. α=0.6 responds quickly while filtering noise.
         smoothedDriftMs = smoothedDriftMs * 0.4 + driftMs * 0.6;
+        const correctionDriftMs = Math.round(smoothedDriftMs);
 
         if (driftEl) {
           const absMs = Math.abs(driftMs);
@@ -3590,7 +3630,7 @@
           const propagationMs = Math.round(Date.now() - clientTimeOfUpdate);
           debugEl.textContent = [
             `drift:       ${driftMs >= 0 ? '+' : ''}${driftMs}ms`,
-            `playbackRate: ${htmlAudio.playbackRate.toFixed(4)}`,
+            `engine:      ${htmlAudio._isWebAudio ? 'WebAudio' : 'HTML5'}`,
             `fppPos:      ${fppPositionNow.toFixed(3)}s`,
             `audioPos:    ${htmlAudio.currentTime.toFixed(3)}s`,
             `staleness:   ${msSinceFppUpdate}ms`,
@@ -3603,16 +3643,82 @@
           ].join('\n');
         }
 
-        // Gentle playbackRate correction — 0.3% max, completely inaudible.
-        // Micro-seeks cause MP3 decoder restarts which sound muddled.
-        // At 0.3%: corrects 300ms drift in ~100 seconds. Slow but clean.
-        // The deviceOffset calibration handles the bulk of the offset,
-        // leaving only small residual drift for playbackRate to handle.
-        if (Math.abs(correctionDriftMs) > 100) {
-          const correction = Math.min(Math.abs(correctionDriftMs) / 100000, 0.003);
-          htmlAudio.playbackRate = correctionDriftMs > 0 ? (1.0 - correction) : (1.0 + correction);
-        } else {
-          htmlAudio.playbackRate = 1.0;
+        // ---- Web Audio crossfade correction ----
+        // If drift exceeds threshold, create a new AudioBufferSourceNode at
+        // the correct position and crossfade to it in 50ms. This is completely
+        // inaudible (PulseMesh uses the same technique) and corrects any drift
+        // instantly without playbackRate pitch artifacts.
+        const CROSSFADE_THRESHOLD_MS = 25; // match PulseMesh's 25ms threshold
+        const CROSSFADE_DURATION = 0.05;   // 50ms crossfade
+
+        if (htmlAudio._isWebAudio && currentBuffer && audioCtx && audioCtx.state === 'running') {
+          if (Math.abs(correctionDriftMs) > CROSSFADE_THRESHOLD_MS &&
+              !htmlAudio._crossfading &&
+              audioCtx.currentTime - lastCrossfadeAtCtx > 1.0) {
+
+            htmlAudio._crossfading = true;
+            lastCrossfadeAtCtx = audioCtx.currentTime;
+            const targetSec = fppPositionNow;
+            console.log('[ShowPilot] crossfade correction:', correctionDriftMs, 'ms → target', targetSec.toFixed(3) + 's');
+
+            try {
+              // Create new source at correct position
+              const newSrc = audioCtx.createBufferSource();
+              newSrc.buffer = currentBuffer;
+              const newGain = audioCtx.createGain();
+              newGain.gain.value = 0;
+              newSrc.connect(newGain);
+              newGain.connect(gainNode);
+
+              const now = audioCtx.currentTime;
+              newSrc.start(now, Math.max(0, targetSec));
+
+              // Fade in new source, fade out old source
+              if (currentSourceGain) {
+                currentSourceGain.gain.setValueAtTime(1, now);
+                currentSourceGain.gain.linearRampToValueAtTime(0, now + CROSSFADE_DURATION);
+              }
+              newGain.gain.setValueAtTime(0, now);
+              newGain.gain.linearRampToValueAtTime(1, now + CROSSFADE_DURATION);
+
+              // After crossfade, stop old source and update tracking
+              setTimeout(() => {
+                if (currentSource) {
+                  try { currentSource.stop(); currentSource.disconnect(); } catch {}
+                }
+                if (currentSourceGain) {
+                  try { currentSourceGain.disconnect(); } catch {}
+                }
+                currentSource = newSrc;
+                currentSourceGain = newGain;
+                // Update position tracking anchor
+                trackScheduledAtAudioCtx = now;
+                trackScheduledAtPositionSec = targetSec;
+                if (htmlAudio) {
+                  htmlAudio._seekedTo = targetSec;
+                  htmlAudio._crossfading = false;
+                  smoothedDriftMs = 0;
+                }
+                newSrc.onended = () => {
+                  if (currentSource === newSrc) {
+                    currentSource = null; currentSourceGain = null;
+                    if (htmlAudio) htmlAudio.paused = true;
+                  }
+                };
+              }, CROSSFADE_DURATION * 1000 + 50);
+            } catch (e) {
+              console.warn('[ShowPilot] crossfade failed:', e.message);
+              if (htmlAudio) htmlAudio._crossfading = false;
+            }
+          }
+        } else if (!htmlAudio._isWebAudio) {
+          // Legacy HTML5 fallback
+          if (Math.abs(correctionDriftMs) > 100) {
+            const correction = Math.min(Math.abs(correctionDriftMs) / 100000, 0.003);
+            htmlAudio.playbackRate = correctionDriftMs > 0 ? (1.0 - correction) : (1.0 + correction);
+          } else {
+            htmlAudio.playbackRate = 1.0;
+          }
         }
         return;
       }
