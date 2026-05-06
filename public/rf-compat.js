@@ -2409,8 +2409,18 @@
     // Load saved device offset
     try {
       const saved = localStorage.getItem('sp_device_offset');
-      if (saved) deviceOffset = parseFloat(saved) || 0;
-      console.log('[ShowPilot] device offset loaded:', deviceOffset, 'ms');
+      if (saved) {
+        const val = parseFloat(saved) || 0;
+        // Discard extreme values from old HTML5 engine calibration — Web Audio
+        // has different characteristics. Values beyond ±500ms are invalid.
+        if (Math.abs(val) < 500) {
+          deviceOffset = val;
+          console.log('[ShowPilot] device offset loaded:', deviceOffset, 'ms');
+        } else {
+          localStorage.removeItem('sp_device_offset');
+          console.log('[ShowPilot] discarded stale device offset:', val, 'ms');
+        }
+      }
     } catch (_) {}
 
     // Measure hardware output latency via Web Audio API
@@ -3274,7 +3284,7 @@
           const msUntilPlay = playAtServerMs - serverNow;
           const waitSec = msUntilPlay / 1000;
 
-          startPositionSec = syncPoint.positionSec + waitSec - (audioSyncOffsetMs / 1000) - (deviceOffset / 1000);
+          startPositionSec = syncPoint.positionSec + waitSec - (audioSyncOffsetMs / 1000) + (deviceOffset / 1000);
           // Schedule playback: current audioCtx time + wait duration + output latency compensation
           playAtCtxTime = audioCtx.currentTime + waitSec + outputLatencySec;
 
@@ -3284,7 +3294,7 @@
         } else {
           // Fallback: use fppStatus or trackStartedAtMs
           const pos = fppStatus?.positionSec || Math.max(0, (Date.now() + clockOffset - trackStartedAtMs) / 1000);
-          startPositionSec = pos + 0.1 - (audioSyncOffsetMs / 1000) - (deviceOffset / 1000);
+          startPositionSec = pos + 0.1 - (audioSyncOffsetMs / 1000) + (deviceOffset / 1000);
           playAtCtxTime = audioCtx.currentTime + 0.1 + outputLatencySec;
         }
 
@@ -3331,9 +3341,9 @@
           playbackRate: 1,
           duration: audioBuffer.duration,
           get currentTime() {
-            if (!audioCtx || audioCtx.state === 'suspended') return startPositionSec;
-            const elapsed = audioCtx.currentTime - playAtCtxTime;
-            return startPositionSec + Math.max(0, elapsed);
+            if (!audioCtx || audioCtx.state === 'suspended') return trackScheduledAtPositionSec;
+            const elapsed = audioCtx.currentTime - trackScheduledAtAudioCtx;
+            return trackScheduledAtPositionSec + Math.max(0, elapsed);
           },
           set currentTime(v) { /* crossfade seeks handled by drift correction */ },
         };
@@ -3654,11 +3664,11 @@
         if (htmlAudio._isWebAudio && currentBuffer && audioCtx && audioCtx.state === 'running') {
           if (Math.abs(correctionDriftMs) > CROSSFADE_THRESHOLD_MS &&
               !htmlAudio._crossfading &&
-              audioCtx.currentTime - lastCrossfadeAtCtx > 1.0) {
+              audioCtx.currentTime - lastCrossfadeAtCtx > 2.0) {
 
             htmlAudio._crossfading = true;
             lastCrossfadeAtCtx = audioCtx.currentTime;
-            const targetSec = fppPositionNow;
+            const targetSec = fppPositionNow + CROSSFADE_DURATION + 0.05; // lead for fade + processing
             console.log('[ShowPilot] crossfade correction:', correctionDriftMs, 'ms → target', targetSec.toFixed(3) + 's');
 
             try {
@@ -3691,7 +3701,7 @@
                 }
                 currentSource = newSrc;
                 currentSourceGain = newGain;
-                // Update position tracking anchor
+                // Update position tracking: new source started at `now` playing from `targetSec`
                 trackScheduledAtAudioCtx = now;
                 trackScheduledAtPositionSec = targetSec;
                 if (htmlAudio) {
