@@ -729,9 +729,8 @@ function gracefulExit(signal, code) {
     require('./lib/cloudflared').shutdownHook();
   } catch {}
   // Give the SIGTERM we just sent to cloudflared a moment to land,
-  // then exit. A 500ms wait isn't perfect but it's almost always enough
-  // for a child process to receive the signal and start exiting.
-  setTimeout(() => process.exit(code), 500).unref();
+  // then exit. 2s is enough for cloudflared to receive and act on the signal.
+  setTimeout(() => process.exit(code), 2000).unref();
 }
 process.on('SIGTERM', () => gracefulExit('SIGTERM', 0));
 process.on('SIGINT',  () => gracefulExit('SIGINT',  0));
