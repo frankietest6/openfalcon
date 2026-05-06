@@ -3450,6 +3450,7 @@
       playGeneration++; // cancel any in-flight scheduled play
       fppStatus = null; // clear FPP position so drift correction stops
       smoothedDriftMs = 0;
+      if (htmlAudio) htmlAudio._microSeekCooldown = false;
       if (currentSource) {
         try { currentSource.stop(); } catch {}
         try { currentSource.disconnect(); } catch {}
@@ -3558,24 +3559,23 @@
           ].join('\n');
         }
 
-        // Apply correction based on smoothed drift — prevents oscillation
-        const correctionDriftMs = Math.round(smoothedDriftMs);
-        if (Math.abs(correctionDriftMs) > 300 && Date.now() - audioStartedAtMs < 3000 && !htmlAudio._startupSeeked) {
-          htmlAudio._startupSeeked = true;
-          const snapTarget = fppPositionNow + 0.2;
+        // Micro-seek correction — instead of playbackRate (which causes
+        // audible pitch/quality artifacts), we make tiny position adjustments.
+        // Humans can't detect audio gaps or skips under ~20ms.
+        // Max correction per cycle: 20ms forward or 20ms back.
+        // At 250ms cycles: up to 80ms/second correction rate.
+        // Always reset playbackRate to 1.0 — no pitch shifting ever.
+        htmlAudio.playbackRate = 1.0;
+
+        if (Math.abs(correctionDriftMs) > 100 && !htmlAudio._microSeekCooldown) {
+          const maxCorrection = 0.020; // 20ms max per correction
+          const correction = Math.min(Math.abs(correctionDriftMs) / 1000, maxCorrection);
           try {
-            htmlAudio.currentTime = snapTarget;
-            htmlAudio.playbackRate = 1.0;
-            smoothedDriftMs = 0;
-            console.info('[ShowPilot] startup snap:', correctionDriftMs, 'ms → seeking to', snapTarget.toFixed(3), 's');
+            htmlAudio.currentTime = htmlAudio.currentTime - (correctionDriftMs > 0 ? correction : -correction);
+            // Cooldown: wait 500ms before next micro-seek to avoid rapid seeking
+            htmlAudio._microSeekCooldown = true;
+            setTimeout(() => { if (htmlAudio) htmlAudio._microSeekCooldown = false; }, 500);
           } catch (_) {}
-        } else if (Math.abs(correctionDriftMs) > 50) {
-          // Proportional correction capped at 3% — mostly inaudible,
-          // corrects 300ms drift in ~10 seconds.
-          const correction = Math.min(Math.abs(correctionDriftMs) / 10000, 0.03);
-          htmlAudio.playbackRate = correctionDriftMs > 0 ? (1.0 - correction) : (1.0 + correction);
-        } else {
-          htmlAudio.playbackRate = 1.0;
         }
         return;
       }
