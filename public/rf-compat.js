@@ -2696,32 +2696,10 @@
         gainNode.connect(audioCtx.destination);
         statusEl.textContent = 'Loading…';
 
-        // Measure hardware output latency using AudioContext.getOutputTimestamp()
-        // This is PulseMesh's SilentStarter approach — catches Bluetooth A2DP
-        // buffer, DSP processing, and hardware pipeline latency that simple
-        // outputLatency misses.
-        try {
-          hardwareLatencyMs = Math.round((audioCtx.outputLatency || audioCtx.baseLatency || 0) * 1000);
-          if (typeof audioCtx.getOutputTimestamp === 'function') {
-            const silentBuf = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.1, audioCtx.sampleRate);
-            const src = audioCtx.createBufferSource();
-            src.buffer = silentBuf;
-            src.connect(audioCtx.destination);
-            src.start(audioCtx.currentTime + 0.05);
-            await new Promise(r => setTimeout(r, 150));
-            const ts = audioCtx.getOutputTimestamp();
-            if (ts && ts.contextTime > 0 && ts.performanceTime > 0) {
-              const measured = Math.round(Math.abs(ts.contextTime - (ts.performanceTime / 1000)) * 1000);
-              if (measured > hardwareLatencyMs) hardwareLatencyMs = measured;
-            }
-          }
-          console.log('[ShowPilot] hardware output latency:', hardwareLatencyMs, 'ms');
-          // Apply to deviceOffset only if no saved calibration exists
-          if (hardwareLatencyMs > 0 && Math.abs(deviceOffset) < 10) {
-            deviceOffset = -hardwareLatencyMs;
-            console.log('[ShowPilot] initial deviceOffset from hardware latency:', deviceOffset, 'ms');
-          }
-        } catch (_) {}
+        // Hardware latency measurement removed — getOutputTimestamp() was
+        // returning unreliable values (2000ms+) that destroyed sync.
+        // Per-device calibration (localStorage sp_device_offset) handles
+        // device latency instead.
         // Establish accurate clock offset BEFORE first sync poll. The first
         // poll's track-start timestamp uses clockOffset to compute initial
         // playback position; if clockOffset is wrong by 200ms here, every
