@@ -2413,7 +2413,7 @@
         const val = parseFloat(saved) || 0;
         // Discard extreme values from old HTML5 engine calibration — Web Audio
         // has different characteristics. Values beyond ±500ms are invalid.
-        if (Math.abs(val) < 500) {
+        if (Math.abs(val) < 200) {
           deviceOffset = val;
           console.log('[ShowPilot] device offset loaded:', deviceOffset, 'ms');
         } else {
@@ -3689,13 +3689,13 @@
         // the correct position and crossfade to it in 50ms. This is completely
         // inaudible (PulseMesh uses the same technique) and corrects any drift
         // instantly without playbackRate pitch artifacts.
-        const CROSSFADE_THRESHOLD_MS = 25; // match PulseMesh's 25ms threshold
+        const CROSSFADE_THRESHOLD_MS = 150; // only correct large drifts
         const CROSSFADE_DURATION = 0.05;   // 50ms crossfade
 
         if (htmlAudio._isWebAudio && currentBuffer && audioCtx && audioCtx.state === 'running') {
           if (Math.abs(correctionDriftMs) > CROSSFADE_THRESHOLD_MS &&
               !htmlAudio._crossfading &&
-              audioCtx.currentTime - lastCrossfadeAtCtx > 2.0) {
+              audioCtx.currentTime - lastCrossfadeAtCtx > 10.0) {
 
             htmlAudio._crossfading = true;
             lastCrossfadeAtCtx = audioCtx.currentTime;
