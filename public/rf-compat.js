@@ -3533,6 +3533,11 @@
         driftEl.style.color = absMs < 100 ? '#4ade80' : (absMs < 500 ? '#fb923c' : '#ef4444');
       }
 
+      // Skip all seek-based corrections when fppStatus is available.
+      // playbackRate correction handles drift continuously and accurately.
+      // Seek corrections fight the playbackRate loop and cause audible skipping.
+      if (fppStatus) return;
+
       // ---- One-shot post-start correction (v0.27.0, median-of-3 in v0.28.2) ----
       // Fires once, ~1s after .play() was called for the current track.
       // This is the moment of truth for multi-phone sync: the browser's
