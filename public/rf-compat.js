@@ -3220,10 +3220,15 @@
         // so we never miss a syncPoint that fired during buffering.
         const myGeneration = playGeneration;
 
+        console.log('[ShowPilot] waiting for syncPoint, fppStatus:', fppStatus ? fppStatus.positionSec?.toFixed(2) + 's' : 'null');
         const syncPoint = await Promise.race([
           syncPointPromise,
-          new Promise(resolve => setTimeout(() => resolve(pendingSyncPoint || fppStatus), 10000))
+          new Promise(resolve => setTimeout(() => {
+            console.log('[ShowPilot] syncPoint timeout — using fallback');
+            resolve(pendingSyncPoint || fppStatus);
+          }, 10000))
         ]);
+        console.log('[ShowPilot] got syncPoint:', syncPoint ? syncPoint.positionSec?.toFixed(2) + 's ts=' + syncPoint.serverTimestamp : 'null');
         if (playGeneration !== myGeneration) return;
 
         // If no syncPoint arrived, fall back to fppStatus or trackStartedAtMs
