@@ -2703,12 +2703,22 @@
             // FPP live position from daemon WebSocket — use this for
             // playbackRate drift correction so phones track FPP's speakers.
             audioSock.on('fppPosition', (msg) => {
-              if (!htmlAudio || htmlAudio.paused || !msg || !msg.playing) return;
-              if (!msg.filename) return;
+              if (!msg || !msg.playing || !msg.filename || !msg.serverTimestamp) return;
+
+              // ---- PLL-style clock offset refinement ----
+              // Every fppPosition event has a serverTimestamp. The difference
+              // between that and Date.now() gives us a one-way latency + clock
+              // offset measurement. We smooth it exponentially (α=0.05) to
+              // track clock drift continuously without jerky corrections.
+              // This is similar to how PulseMesh uses a smoothed virtual clock.
+              const measured = msg.serverTimestamp - Date.now();
+              clockOffset = clockOffset * 0.95 + measured * 0.05;
+
+              if (!htmlAudio || htmlAudio.paused) return;
               fppStatus = {
                 positionSec: msg.positionSec,
                 serverTimestamp: msg.serverTimestamp,
-                arrivedAt: Date.now(), // client clock when event arrived
+                arrivedAt: Date.now(),
                 filename: msg.filename,
               };
             });
@@ -3194,10 +3204,14 @@
           let resolved = false;
           const handler = (msg) => {
             if (!msg || !msg.playing) return;
+            // Refine clock offset from syncPoint timestamp
+            if (msg.serverTimestamp) {
+              const measured = msg.serverTimestamp - Date.now();
+              clockOffset = clockOffset * 0.95 + measured * 0.05;
+            }
             if (!resolved) { resolved = true; resolve(msg); }
           };
           if (audioSock) audioSock.once('fppSyncPoint', handler);
-          // Fallback: if no syncPoint in 10s, use current fppStatus
           setTimeout(() => {
             if (!resolved) { resolved = true; resolve(fppStatus); }
           }, 10000);
