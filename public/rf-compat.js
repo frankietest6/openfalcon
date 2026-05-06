@@ -3459,7 +3459,8 @@
       playGeneration++; // cancel any in-flight scheduled play
       fppStatus = null;
       smoothedDriftMs = 0;
-      calibrationSamples = [];
+      // Only reset calibration samples if not yet calibrated
+      if (calibrationSamples.length < 20) calibrationSamples = [];
       if (htmlAudio) htmlAudio._microSeekCooldown = false;
       if (currentSource) {
         try { currentSource.stop(); } catch {}
@@ -3541,11 +3542,12 @@
         const driftMs = Math.round(drift * 1000);
 
         // Calibration measures RAW drift (without deviceOffset) to learn the
-        // true device latency. Collect samples after 15s of stable playback.
+        // true device latency. Only calibrate once — lock after first 20 samples.
         const rawFppPositionNow = fppStatus.positionSec + (msSinceFppUpdate / 1000);
         const rawDriftMs = Math.round((htmlAudio.currentTime - rawFppPositionNow) * 1000);
         const playingForMs = Date.now() - audioStartedAtMs;
-        if (playingForMs > 15000 && calibrationSamples.length < 20) {
+        const isCalibrated = calibrationSamples.length >= 20;
+        if (!isCalibrated && playingForMs > 15000) {
           calibrationSamples.push(rawDriftMs);
           if (calibrationSamples.length === 20) {
             const sorted = [...calibrationSamples].sort((a, b) => a - b);
@@ -3553,7 +3555,7 @@
             deviceOffset = median;
             try {
               localStorage.setItem('sp_device_offset', median.toString());
-              console.log('[ShowPilot] device offset calibrated:', median, 'ms');
+              console.log('[ShowPilot] device offset calibrated:', median, 'ms — locked');
             } catch (_) {}
           }
         }
@@ -3588,23 +3590,16 @@
           ].join('\n');
         }
 
-        // Micro-seek correction — instead of playbackRate (which causes
-        // audible pitch/quality artifacts), we make tiny position adjustments.
-        // Humans can't detect audio gaps or skips under ~20ms.
-        // Max correction per cycle: 20ms forward or 20ms back.
-        // At 250ms cycles: up to 80ms/second correction rate.
-        // Always reset playbackRate to 1.0 — no pitch shifting ever.
-        htmlAudio.playbackRate = 1.0;
-
-        if (Math.abs(correctionDriftMs) > 100 && !htmlAudio._microSeekCooldown) {
-          const maxCorrection = 0.020; // 20ms max per correction
-          const correction = Math.min(Math.abs(correctionDriftMs) / 1000, maxCorrection);
-          try {
-            htmlAudio.currentTime = htmlAudio.currentTime - (correctionDriftMs > 0 ? correction : -correction);
-            // Cooldown: wait 500ms before next micro-seek to avoid rapid seeking
-            htmlAudio._microSeekCooldown = true;
-            setTimeout(() => { if (htmlAudio) htmlAudio._microSeekCooldown = false; }, 500);
-          } catch (_) {}
+        // Gentle playbackRate correction — 0.3% max, completely inaudible.
+        // Micro-seeks cause MP3 decoder restarts which sound muddled.
+        // At 0.3%: corrects 300ms drift in ~100 seconds. Slow but clean.
+        // The deviceOffset calibration handles the bulk of the offset,
+        // leaving only small residual drift for playbackRate to handle.
+        if (Math.abs(correctionDriftMs) > 100) {
+          const correction = Math.min(Math.abs(correctionDriftMs) / 100000, 0.003);
+          htmlAudio.playbackRate = correctionDriftMs > 0 ? (1.0 - correction) : (1.0 + correction);
+        } else {
+          htmlAudio.playbackRate = 1.0;
         }
         return;
       }
