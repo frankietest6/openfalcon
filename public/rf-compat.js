@@ -3231,10 +3231,11 @@
         const myGeneration = playGeneration;
 
         console.log('[ShowPilot] waiting for syncPoint, fppStatus:', fppStatus ? fppStatus.positionSec?.toFixed(2) + 's' : 'null');
+        let syncPointReceived = false;
         const syncPoint = await Promise.race([
-          syncPointPromise,
+          syncPointPromise.then(sp => { syncPointReceived = true; return sp; }),
           new Promise(resolve => setTimeout(() => {
-            console.log('[ShowPilot] syncPoint timeout — using fallback');
+            if (!syncPointReceived) console.log('[ShowPilot] syncPoint timeout — using fallback');
             resolve(pendingSyncPoint || fppStatus);
           }, 10000))
         ]);
