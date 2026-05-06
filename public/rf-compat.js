@@ -1684,7 +1684,44 @@
   })();
 
   // ============================================================
-  // AUDIO GATE
+  // AUDIO PRE-FETCH (no user gesture needed)
+  // Fetch the raw audio ArrayBuffer as soon as we know what's playing.
+  // fetch() doesn't require a user gesture — only AudioContext does.
+  // By the time the user taps play, the bytes are already in memory.
+  // decodeAudioData() then takes <100ms instead of waiting for download.
+  // ============================================================
+  (function initAudioPrefetch() {
+    let lastPrefetchedSeq = null;
+
+    async function tryPrefetch() {
+      try {
+        const r = await fetch('/api/now-playing-audio', { credentials: 'include' });
+        if (!r.ok) return;
+        const data = await r.json();
+        if (!data.streamUrl || !data.sequenceName) return;
+        if (data.sequenceName === lastPrefetchedSeq) return;
+        // Don't re-fetch if already decoded
+        if (window._spRawBufferCache && window._spRawBufferCache.has(data.sequenceName)) return;
+
+        lastPrefetchedSeq = data.sequenceName;
+        const url = window.location.origin + data.streamUrl;
+        const resp = await fetch(url);
+        if (!resp.ok) return;
+        const buf = await resp.arrayBuffer();
+        if (!window._spRawBufferCache) window._spRawBufferCache = new Map();
+        window._spRawBufferCache.set(data.sequenceName, buf);
+        // Cap at 3 entries
+        if (window._spRawBufferCache.size > 3) {
+          window._spRawBufferCache.delete(window._spRawBufferCache.keys().next().value);
+        }
+        console.info('[ShowPilot] pre-fetched audio bytes for:', data.sequenceName);
+      } catch (_) {}
+    }
+
+    // Fetch immediately on page load, then again when song changes
+    tryPrefetch();
+    setInterval(tryPrefetch, 5000);
+  })();
   //
   // Two distinct concerns, kept separate:
   //   (1) Server-side block — show offline, control OFF, manual disable, etc.
@@ -2388,6 +2425,7 @@
     let prefetchPromise = null;   // pending fetch for next track
     let prefetchedSeq = null;     // seq name we pre-fetched
     const decodedBufferCache = new Map(); // sequenceName → AudioBuffer, avoids re-fetch on repeat
+    const rawBufferCache = new Map();    // sequenceName → ArrayBuffer, fetched before user gesture
     let clockOffset = 0;          // serverNow - clientNow at last sync
     let trackStartedAtMs = 0;     // when this track started on server (server epoch)
     let trackDuration = 0;        // total length in seconds
@@ -3194,7 +3232,13 @@
             const prefetchUrl = window.location.origin + data.streamUrl;
             prefetchPromise = fetch(prefetchUrl)
               .then(r => r.ok ? r.arrayBuffer() : null)
-              .then(buf => buf ? audioCtx.decodeAudioData(buf) : null)
+              .then(buf => {
+                if (buf) {
+                  if (!window._spRawBufferCache) window._spRawBufferCache = new Map();
+                  window._spRawBufferCache.set(data.sequenceName, buf);
+                  return audioCtx.decodeAudioData(buf.slice(0));
+                }
+              })
               .then(decoded => {
                 if (decoded) {
                   decodedBufferCache.set(data.sequenceName, decoded);
@@ -3309,18 +3353,30 @@
         console.info('[ShowPilot] audio source: CACHE (WebAudio)', chosenUrl);
         statusEl.textContent = 'Loading audio…';
 
-        // Use pre-decoded buffer from prefetch cache if available — instant start
+        // Use pre-decoded buffer if available (best case — instant)
+        // or pre-fetched raw bytes if available (skip download, just decode)
+        // or fall back to full fetch+decode
         let audioBuffer = decodedBufferCache.get(currentSequence) || null;
         if (audioBuffer) {
-          console.info('[ShowPilot] using prefetched buffer for', currentSequence);
+          console.info('[ShowPilot] using pre-decoded buffer for', currentSequence);
         } else {
-          // Fetch entire file as ArrayBuffer and decode to PCM
-          const fetchResp = await fetch(chosenUrl);
-          if (!fetchResp.ok) throw new Error('HTTP ' + fetchResp.status);
-          const arrayBuf = await fetchResp.arrayBuffer();
-          audioBuffer = await new Promise((resolve, reject) => {
-            audioCtx.decodeAudioData(arrayBuf, resolve, reject);
-          });
+          // Check for pre-fetched raw bytes (downloaded before user tapped play)
+          const rawBuf = (window._spRawBufferCache && window._spRawBufferCache.get(currentSequence)) || null;
+          if (rawBuf) {
+            console.info('[ShowPilot] using pre-fetched bytes, decoding now...');
+            audioBuffer = await new Promise((resolve, reject) => {
+              audioCtx.decodeAudioData(rawBuf.slice(0), resolve, reject);
+            });
+          } else {
+            // Full fetch+decode fallback
+            console.info('[ShowPilot] fetching audio (no pre-fetch available)...');
+            const fetchResp = await fetch(chosenUrl);
+            if (!fetchResp.ok) throw new Error('HTTP ' + fetchResp.status);
+            const arrayBuf = await fetchResp.arrayBuffer();
+            audioBuffer = await new Promise((resolve, reject) => {
+              audioCtx.decodeAudioData(arrayBuf, resolve, reject);
+            });
+          }
         }
         currentBuffer = audioBuffer;
         console.info('[ShowPilot] audio ready:', audioBuffer.duration.toFixed(2) + 's', audioBuffer.sampleRate + 'Hz');
