@@ -3231,12 +3231,20 @@
         let playAtClientMs;
 
         if (syncPoint && syncPoint.positionSec > 0) {
-          // Use syncPoint.serverTimestamp + LEAD_MS converted to local time.
-          // ALL devices compute the SAME absolute play moment regardless of
-          // when the Socket.io event arrived — clockOffset converts server
-          // time to local time consistently across devices.
-          playAtClientMs = (syncPoint.serverTimestamp + LEAD_MS) - clockOffset;
-          targetPosition = syncPoint.positionSec + (LEAD_MS / 1000) - (audioSyncOffsetMs / 1000);
+          // Grid-clock coordination: snap to the next 4-second server-time
+          // boundary that's at least 800ms away. All devices that receive
+          // ANY syncPoint within a 4-second window will compute the SAME
+          // playAtServerMs, guaranteeing they play at the same moment
+          // regardless of which specific syncPoint event they received.
+          const serverNow = syncPoint.serverTimestamp;
+          const gridMs = 4000;
+          const minPlayAt = serverNow + LEAD_MS;
+          const playAtServerMs = Math.ceil(minPlayAt / gridMs) * gridMs;
+          playAtClientMs = playAtServerMs - clockOffset;
+
+          // Seek to where FPP will be at the grid-clock play moment
+          const msUntilPlay = playAtServerMs - serverNow;
+          targetPosition = syncPoint.positionSec + (msUntilPlay / 1000) - (audioSyncOffsetMs / 1000);
         } else {
           // No syncPoint — use best available position and play immediately
           const pos = fppStatus?.positionSec || Math.max(0, (Date.now() + clockOffset - trackStartedAtMs) / 1000);
@@ -3540,11 +3548,15 @@
             htmlAudio.playbackRate = 1.0;
             console.info('[ShowPilot] startup snap:', driftMs, 'ms → seeking to', snapTarget.toFixed(3), 's');
           } catch (_) {}
-        } else if (Math.abs(driftMs) > 150) {
-          // Proportional: max 1% — still inaudible, corrects 235ms in ~25 seconds
-          const correction = Math.min(Math.abs(driftMs) / 50000, 0.01);
+        } else if (Math.abs(driftMs) > 50) {
+          // Proportional correction — scales with drift, max 5%
+          // At 500ms drift: 5% → corrects in ~10 seconds
+          // At 100ms drift: 1% → corrects in ~10 seconds  
+          // At 50ms drift: within dead zone, no correction
+          const correction = Math.min(Math.abs(driftMs) / 10000, 0.05);
           htmlAudio.playbackRate = driftMs > 0 ? (1.0 - correction) : (1.0 + correction);
         } else {
+          // Within 50ms dead zone — close enough, stop correcting
           htmlAudio.playbackRate = 1.0;
         }
         return;
