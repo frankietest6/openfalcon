@@ -3243,6 +3243,7 @@
         a.currentTime = targetPosition;
         a._seekedTo = targetPosition;
         a._seekFppTs = syncPoint?.serverTimestamp ? new Date(syncPoint.serverTimestamp).toISOString().slice(14,22) : 'none';
+        a._syncPointTs = syncPoint?.serverTimestamp ? syncPoint.serverTimestamp : 'none';
 
         // Wait until the scheduled play moment
         const waitMs = Math.max(0, playAtClientMs - Date.now());
@@ -3513,6 +3514,7 @@
             `clockOffset: ${Math.round(clockOffset)}ms`,
             `seekedTo:    ${(htmlAudio._seekedTo || 0).toFixed(3)}s`,
             `seekFppTs:   ${htmlAudio._seekFppTs || 'none'}`,
+            `syncPtTs:    ${htmlAudio._syncPointTs || 'none'}`,
           ].join('\n');
         }
 
