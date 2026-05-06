@@ -2403,6 +2403,15 @@
     let useRelay = false;  // true when audio is coming from the live relay stream
     let fppStatus = null;  // latest FPP position from daemon WebSocket
     let smoothedDriftMs = 0; // exponentially smoothed drift for stable correction
+    let calibrationSamples = []; // collect drift samples for auto-calibration
+    let deviceOffset = 0; // per-device learned offset stored in localStorage
+
+    // Load saved device offset
+    try {
+      const saved = localStorage.getItem('sp_device_offset');
+      if (saved) deviceOffset = parseFloat(saved) || 0;
+      console.log('[ShowPilot] device offset loaded:', deviceOffset, 'ms');
+    } catch (_) {}
     let audioSock = null;  // Socket.io connection for position updates
     // Expose for debugging
     window._spDebug = () => ({
@@ -3448,8 +3457,9 @@
 
     function stopAudio() {
       playGeneration++; // cancel any in-flight scheduled play
-      fppStatus = null; // clear FPP position so drift correction stops
+      fppStatus = null;
       smoothedDriftMs = 0;
+      calibrationSamples = [];
       if (htmlAudio) htmlAudio._microSeekCooldown = false;
       if (currentSource) {
         try { currentSource.stop(); } catch {}
@@ -3526,9 +3536,25 @@
         // Cap at 2s — don't extrapolate beyond that on very stale readings.
         const clientTimeOfUpdate = fppStatus.serverTimestamp - clockOffset;
         const msSinceFppUpdate = Math.min(Math.max(Date.now() - clientTimeOfUpdate, 0), 2000);
-        const fppPositionNow = fppStatus.positionSec + (msSinceFppUpdate / 1000);
+        const fppPositionNow = fppStatus.positionSec + (msSinceFppUpdate / 1000) - (deviceOffset / 1000);
         const drift = htmlAudio.currentTime - fppPositionNow;
         const driftMs = Math.round(drift * 1000);
+
+        // Collect calibration samples after 15 seconds of stable playback.
+        // Once we have 20 samples, compute median and save as device offset.
+        const playingForMs = Date.now() - audioStartedAtMs;
+        if (playingForMs > 15000 && calibrationSamples.length < 20) {
+          calibrationSamples.push(driftMs);
+          if (calibrationSamples.length === 20) {
+            const sorted = [...calibrationSamples].sort((a, b) => a - b);
+            const median = sorted[10];
+            deviceOffset = median;
+            try {
+              localStorage.setItem('sp_device_offset', median.toString());
+              console.log('[ShowPilot] device offset calibrated:', median, 'ms');
+            } catch (_) {}
+          }
+        }
 
         // Smooth the drift measurement to prevent oscillation from 500ms
         // FIFO update jitter. α=0.6 responds quickly while filtering noise.
@@ -3556,6 +3582,7 @@
             `seekedTo:    ${(htmlAudio._seekedTo || 0).toFixed(3)}s`,
             `seekFppTs:   ${htmlAudio._seekFppTs || 'none'}`,
             `syncPtTs:    ${htmlAudio._syncPointTs || 'none'}`,
+            `deviceOff:   ${Math.round(deviceOffset)}ms (${calibrationSamples.length}/20)`,
           ].join('\n');
         }
 
