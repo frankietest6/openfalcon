@@ -2387,6 +2387,7 @@
     let currentMediaName = null;
     let prefetchPromise = null;   // pending fetch for next track
     let prefetchedSeq = null;     // seq name we pre-fetched
+    const decodedBufferCache = new Map(); // sequenceName → AudioBuffer, avoids re-fetch on repeat
     let clockOffset = 0;          // serverNow - clientNow at last sync
     let trackStartedAtMs = 0;     // when this track started on server (server epoch)
     let trackDuration = 0;        // total length in seconds
@@ -3164,6 +3165,23 @@
         if (data.sequenceName !== currentSequence) {
           handleTrackChange(data);
         } else {
+          // Same track — prefetch audio in background if not already cached/fetching
+          if (data.streamUrl && data.sequenceName && audioCtx &&
+              !decodedBufferCache.has(data.sequenceName) &&
+              prefetchedSeq !== data.sequenceName) {
+            prefetchedSeq = data.sequenceName;
+            const prefetchUrl = window.location.origin + data.streamUrl;
+            prefetchPromise = fetch(prefetchUrl)
+              .then(r => r.ok ? r.arrayBuffer() : null)
+              .then(buf => buf ? audioCtx.decodeAudioData(buf) : null)
+              .then(decoded => {
+                if (decoded) {
+                  decodedBufferCache.set(data.sequenceName, decoded);
+                  console.info('[ShowPilot] prefetch complete:', data.sequenceName);
+                }
+              })
+              .catch(() => { prefetchedSeq = null; }); // reset on error so we retry
+          }
           // Same track — just update timing anchor in case server has new info
           if (data.trackStartedAtMs) trackStartedAtMs = data.trackStartedAtMs;
           if (data.durationSec) trackDuration = data.durationSec;
@@ -3270,17 +3288,21 @@
         console.info('[ShowPilot] audio source: CACHE (WebAudio)', chosenUrl);
         statusEl.textContent = 'Loading audio…';
 
-        // Fetch entire file as ArrayBuffer
-        const fetchResp = await fetch(chosenUrl);
-        if (!fetchResp.ok) throw new Error('HTTP ' + fetchResp.status);
-        const arrayBuf = await fetchResp.arrayBuffer();
-
-        // Decode to PCM — this is the key step that enables clean seeking
-        const audioBuffer = await new Promise((resolve, reject) => {
-          audioCtx.decodeAudioData(arrayBuf, resolve, reject);
-        });
+        // Use pre-decoded buffer from prefetch cache if available — instant start
+        let audioBuffer = decodedBufferCache.get(currentSequence) || null;
+        if (audioBuffer) {
+          console.info('[ShowPilot] using prefetched buffer for', currentSequence);
+        } else {
+          // Fetch entire file as ArrayBuffer and decode to PCM
+          const fetchResp = await fetch(chosenUrl);
+          if (!fetchResp.ok) throw new Error('HTTP ' + fetchResp.status);
+          const arrayBuf = await fetchResp.arrayBuffer();
+          audioBuffer = await new Promise((resolve, reject) => {
+            audioCtx.decodeAudioData(arrayBuf, resolve, reject);
+          });
+        }
         currentBuffer = audioBuffer;
-        console.info('[ShowPilot] audio decoded:', audioBuffer.duration.toFixed(2) + 's', audioBuffer.sampleRate + 'Hz');
+        console.info('[ShowPilot] audio ready:', audioBuffer.duration.toFixed(2) + 's', audioBuffer.sampleRate + 'Hz');
 
         // ---- Coordinated play start ----
         // syncPointPromise was registered at track change start (before buffering)
@@ -3556,6 +3578,14 @@
       fppStatus = null;
       smoothedDriftMs = 0;
       if (calibrationSamples.length < 20) calibrationSamples = [];
+      prefetchPromise = null;
+      prefetchedSeq = null;
+      // Keep decoded buffer cache — avoids re-fetch if same song plays again
+      // Cap at 3 entries to avoid memory bloat
+      if (decodedBufferCache.size > 3) {
+        const firstKey = decodedBufferCache.keys().next().value;
+        decodedBufferCache.delete(firstKey);
+      }
       if (currentSource) {
         try { currentSource.stop(); } catch {}
         try { currentSource.disconnect(); } catch {}
