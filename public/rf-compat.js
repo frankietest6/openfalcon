@@ -3540,11 +3540,13 @@
         const drift = htmlAudio.currentTime - fppPositionNow;
         const driftMs = Math.round(drift * 1000);
 
-        // Collect calibration samples after 15 seconds of stable playback.
-        // Once we have 20 samples, compute median and save as device offset.
+        // Calibration measures RAW drift (without deviceOffset) to learn the
+        // true device latency. Collect samples after 15s of stable playback.
+        const rawFppPositionNow = fppStatus.positionSec + (msSinceFppUpdate / 1000);
+        const rawDriftMs = Math.round((htmlAudio.currentTime - rawFppPositionNow) * 1000);
         const playingForMs = Date.now() - audioStartedAtMs;
         if (playingForMs > 15000 && calibrationSamples.length < 20) {
-          calibrationSamples.push(driftMs);
+          calibrationSamples.push(rawDriftMs);
           if (calibrationSamples.length === 20) {
             const sorted = [...calibrationSamples].sort((a, b) => a - b);
             const median = sorted[10];
