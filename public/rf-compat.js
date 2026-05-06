@@ -2424,24 +2424,18 @@
       }
     } catch (_) {}
 
-    // Measure hardware output latency via Web Audio API
-    // This gives us the exact time from browser to speakers without calibration
-    try {
-      const tmpCtx = new (window.AudioContext || window.webkitAudioContext)();
-      const hwLatencyMs = Math.round((tmpCtx.outputLatency || tmpCtx.baseLatency || 0) * 1000);
-      tmpCtx.close().catch(() => {});
-      if (hwLatencyMs > 0 && Math.abs(deviceOffset) < 10) {
-        // Only apply if we don't have a calibrated offset yet
-        deviceOffset = hwLatencyMs;
-        console.log('[ShowPilot] hardware output latency:', hwLatencyMs, 'ms');
-      }
-    } catch (_) {}
+    // Hardware output latency — measured inside startup() where await is valid
+    let hardwareLatencyMs = 0;
+
+    // Apply hardware latency to deviceOffset if no calibration exists yet
+    // (called after measurement inside startup())
     let audioSock = null;  // Socket.io connection for position updates
     // Expose for debugging
     window._spDebug = () => ({
       audioSock: audioSock ? { connected: audioSock.connected, transport: audioSock.io?.engine?.transport?.name } : null,
       fppStatus: fppStatus ? { positionSec: fppStatus.positionSec, filename: fppStatus.filename } : null,
       clockOffset,
+      hardwareLatencyMs,
     });
 
     // Post-startup correction state (v0.27.0).
@@ -2703,6 +2697,33 @@
         gainNode.gain.value = isMuted ? 0 : 1;
         gainNode.connect(audioCtx.destination);
         statusEl.textContent = 'Loading…';
+
+        // Measure hardware output latency using AudioContext.getOutputTimestamp()
+        // This is PulseMesh's SilentStarter approach — catches Bluetooth A2DP
+        // buffer, DSP processing, and hardware pipeline latency that simple
+        // outputLatency misses.
+        try {
+          hardwareLatencyMs = Math.round((audioCtx.outputLatency || audioCtx.baseLatency || 0) * 1000);
+          if (typeof audioCtx.getOutputTimestamp === 'function') {
+            const silentBuf = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.1, audioCtx.sampleRate);
+            const src = audioCtx.createBufferSource();
+            src.buffer = silentBuf;
+            src.connect(audioCtx.destination);
+            src.start(audioCtx.currentTime + 0.05);
+            await new Promise(r => setTimeout(r, 150));
+            const ts = audioCtx.getOutputTimestamp();
+            if (ts && ts.contextTime > 0 && ts.performanceTime > 0) {
+              const measured = Math.round(Math.abs(ts.contextTime - (ts.performanceTime / 1000)) * 1000);
+              if (measured > hardwareLatencyMs) hardwareLatencyMs = measured;
+            }
+          }
+          console.log('[ShowPilot] hardware output latency:', hardwareLatencyMs, 'ms');
+          // Apply to deviceOffset only if no saved calibration exists
+          if (hardwareLatencyMs > 0 && Math.abs(deviceOffset) < 10) {
+            deviceOffset = -hardwareLatencyMs;
+            console.log('[ShowPilot] initial deviceOffset from hardware latency:', deviceOffset, 'ms');
+          }
+        } catch (_) {}
         // Establish accurate clock offset BEFORE first sync poll. The first
         // poll's track-start timestamp uses clockOffset to compute initial
         // playback position; if clockOffset is wrong by 200ms here, every
@@ -3711,6 +3732,7 @@
             `seekFppTs:   ${htmlAudio._seekFppTs || 'none'}`,
             `syncPtTs:    ${htmlAudio._syncPointTs || 'none'}`,
             `deviceOff:   ${Math.round(deviceOffset)}ms (${calibrationSamples.length}/20)`,
+            `hwLatency:   ${hardwareLatencyMs}ms`,
           ].join('\n');
         }
 
