@@ -109,8 +109,13 @@ app.use(express.urlencoded({ extended: true }));
 app.use((req, res, next) => {
   const start = Date.now();
   res.on('finish', () => {
+    const ms = Date.now() - start;
     if (config.logLevel === 'debug' || res.statusCode >= 400) {
-      console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl} ${res.statusCode} ${Date.now() - start}ms`);
+      console.log(`[${new Date().toISOString()}] ${req.method} ${req.originalUrl} ${res.statusCode} ${ms}ms`);
+    } else if (ms > 2000) {
+      // Log slow requests regardless of log level — helps diagnose
+      // intermittent viewer page load delays (> 2s is never normal)
+      console.warn(`[slow-request] ${req.method} ${req.originalUrl} ${res.statusCode} ${ms}ms`);
     }
   });
   next();

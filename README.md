@@ -469,6 +469,12 @@ Environment=NODE_ENV=production
 WantedBy=multi-user.target
 ```
 
+> **Note:** `Restart=always` is required (not `Restart=on-failure`). ShowPilot's in-app updater exits cleanly (code 0) after downloading an update so the new code is picked up on restart — `on-failure` won't restart on a clean exit, leaving ShowPilot stopped after an update. If you have an existing install with `Restart=on-failure`, fix it with:
+> ```bash
+> sudo sed -i 's/Restart=on-failure/Restart=always/' /etc/systemd/system/showpilot.service
+> sudo systemctl daemon-reload
+> ```
+
 Then:
 
 ```bash
