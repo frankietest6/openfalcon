@@ -3831,24 +3831,27 @@
 
         // ---- PLL: correct drift via playbackRate ----
         // Nudge playbackRate to pull audio toward FPP's position.
-        // Small drift (< 30ms): do nothing — within normal jitter.
-        // Medium drift (30-500ms): adjust rate by up to ±2% to converge slowly.
-        // Large drift (> 500ms): snap via re-seek (audible but necessary).
-        // Rate resets to 1.0 when drift is within 10ms.
+        // Uses a proportional controller that tapers correction as drift
+        // approaches zero — prevents overshoot.
+        // Max rate: ±0.5% (5ms/s correction). Slow but inaudible.
+        // Dead zone: < 20ms — reset to 1.0, not worth correcting.
+        // Large drift (> 500ms): snap via re-seek.
         // Don't correct within 3s of a snap — let the new source settle first.
         const msSinceSnap = audioStartedAtMs > 0 ? Date.now() - audioStartedAtMs : 0;
         if (msSinceSnap > 3000) {
           const absDrift = Math.abs(correctionDriftMs);
-          if (absDrift < 10) {
-            // In sync — reset rate
-            if (currentSource) currentSource.playbackRate.value = 1.0;
-            lastAppliedRate = 1.0;
+          if (absDrift < 20) {
+            // In sync — reset rate to 1.0
+            if (currentSource && Math.abs(lastAppliedRate - 1.0) > 0.0001) {
+              currentSource.playbackRate.value = 1.0;
+              lastAppliedRate = 1.0;
+            }
           } else if (absDrift < 500) {
-            // Proportional rate correction: max ±2%
-            // Negative drift = behind = need to speed up (rate > 1)
-            const correction = Math.max(-0.02, Math.min(0.02, -correctionDriftMs / 5000));
+            // Proportional correction, max ±0.5%
+            // Negative drift = behind FPP = speed up (rate > 1.0)
+            const correction = Math.max(-0.005, Math.min(0.005, -correctionDriftMs / 10000));
             const targetRate = 1.0 + correction;
-            if (Math.abs(targetRate - lastAppliedRate) > 0.001) {
+            if (Math.abs(targetRate - lastAppliedRate) > 0.0001) {
               if (currentSource) currentSource.playbackRate.value = targetRate;
               lastAppliedRate = targetRate;
             }
