@@ -837,6 +837,10 @@ router.get('/now-playing-audio', (req, res) => {
     // Relay URL — try this first for live sync. Falls back to streamUrl if relay
     // is not active (503 response). Relay is same-origin only (LAN/local listeners);
     // external listeners use publicStreamUrl which goes through the cache path.
+    // Raw filename on FPP (e.g. "08 - Bloody Mary.mp3"). Used by the
+    // client to match incoming fppSyncPoint events, which carry the
+    // filename not the sequence name.
+    mediaName: seq.media_name,
     relayUrl: `/api/audio-relay/${encodeURIComponent(seq.name)}`,
     relayActive: (() => {
       try {

@@ -2700,13 +2700,25 @@
         // returning unreliable values (2000ms+) that destroyed sync.
         // Per-device calibration (localStorage sp_device_offset) handles
         // device latency instead.
+        // v0.33.126: parallelize cold-start clock sync with audio fetch.
+        // syncOnce() triggers handleTrackChange() which awaits a fetch+decode
+        // — those can run while clock sync is still completing. Burst of 3
+        // is enough at cold start (we re-burst with 5 once Socket.io is up).
         // Establish accurate clock offset BEFORE first sync poll. The first
         // poll's track-start timestamp uses clockOffset to compute initial
         // playback position; if clockOffset is wrong by 200ms here, every
         // viewer joining at the same time gets a different bias, and they
         // drift apart from each other. Burst sync up front prevents that.
-        await syncClockBurst(5);
+        const coldClockSync = syncClockBurst(3);
+        // Don't await — let it resolve while syncOnce() and the subsequent
+        // fetch/decode run in parallel. clockOffset will be set before any
+        // code path that depends on it (start position calc happens after
+        // decode, which always takes >>> 200ms on real devices).
         await syncOnce();
+        // Belt-and-suspenders: ensure cold sync finished before we proceed
+        // past the polling setup, in case syncOnce() returned synchronously
+        // (e.g. show not playing path). Cheap if it already resolved.
+        await coldClockSync;
         // Re-sync periodically — once per second is enough since track-start
         // anchoring means we don't need continuous position updates.
         pollTimer = setInterval(syncOnce, 1000);
@@ -3220,10 +3232,13 @@
         window._pendingSyncPointResolver = resolve;
       });
 
-      // Seed fppStatus from now-playing-audio response so we always have
-      // a position to fall back to even if no fppPosition WS event has
-      // arrived yet. elapsedSec + serverNowMs gives us a usable anchor.
-      if (data.elapsedSec > 0 && data.serverNowMs && !fppStatus) {
+      // Seed fppStatus from now-playing-audio response on EVERY track
+      // change so we always have a fresh position for the new song.
+      // Without this, song 2 inherits song 1's stale position and the
+      // fast-start computation produces a startPositionSec past the new
+      // song's duration ("Waiting for next track…" stuck state).
+      // elapsedSec + serverNowMs gives us a usable anchor.
+      if (data.elapsedSec >= 0 && data.serverNowMs) {
         fppStatus = {
           positionSec: data.elapsedSec,
           serverTimestamp: data.serverNowMs,
@@ -3300,88 +3315,170 @@
         currentBuffer = audioBuffer;
         console.info('[ShowPilot] audio ready:', audioBuffer.duration.toFixed(2) + 's', audioBuffer.sampleRate + 'Hz');
 
-        // ---- Coordinated play start ----
-        // syncPointPromise was registered at track change start (before buffering)
-        // so we never miss a syncPoint that fired during buffering.
+        // ---- Coordinated play start (v0.33.129) ----
+        // Fast-start immediately, one-time grid snap ~2s later to lock all phones
+        // to the same position, then PLL handles the rest of the song.
+        //
+        // HOW IT WORKS:
+        // 1. Audio starts immediately from current fppStatus position — no waiting,
+        //    sound out right away. Phones may be slightly apart at this point.
+        // 2. All phones compute the same 2s grid boundary (playAtServerMs).
+        //    At that moment a setTimeout fires on every phone simultaneously,
+        //    stops the current source, and restarts at the grid-correct position.
+        //    One brief cut (~1ms gap), then all phones are locked together.
+        // 3. syncPointPromise races against the snap timeout — if the daemon
+        //    syncPoint arrives before the snap (~1.5s after song change), it gives
+        //    a more accurate position for the snap. Falls back to fppStatus.
+        // 4. After the snap this mechanism is done. PLL (playbackRate) takes over
+        //    for any residual drift throughout the rest of the song.
+        //
+        // DO NOT add more snap events after the first — one cut per song change only.
         const myGeneration = playGeneration;
-
-        console.log('[ShowPilot] waiting for syncPoint, fppStatus:', fppStatus ? fppStatus.positionSec?.toFixed(2) + 's' : 'null');
-        let syncPointReceived = false;
-        const syncPoint = await Promise.race([
-          syncPointPromise.then(sp => { syncPointReceived = true; return sp; }),
-          new Promise(resolve => setTimeout(() => {
-            if (!syncPointReceived) console.log('[ShowPilot] syncPoint timeout — using fallback');
-            resolve(pendingSyncPoint || fppStatus);
-          }, 10000))
-        ]);
-        console.log('[ShowPilot] got syncPoint:', syncPoint ? syncPoint.positionSec?.toFixed(2) + 's ts=' + syncPoint.serverTimestamp : 'null');
-        if (playGeneration !== myGeneration) return;
-
-        // Determine start position and when to play
-        let startPositionSec;
-        let playAtCtxTime; // audioCtx.currentTime when to start
-
-        // Measure hardware output latency
         const outputLatencySec = audioCtx.outputLatency || audioCtx.baseLatency || 0;
+        const serverNow = Date.now() + clockOffset;
 
-        if (syncPoint && syncPoint.positionSec >= 0) {
-          // Use syncPoint + grid clock for coordinated start
-          const serverNow = syncPoint.serverTimestamp;
-          const gridMs = 2000;
-          const minPlayAt = serverNow + 500;
-          const playAtServerMs = Math.ceil(minPlayAt / gridMs) * gridMs;
-          const msUntilPlay = playAtServerMs - serverNow;
-          const waitSec = msUntilPlay / 1000;
-
-          startPositionSec = syncPoint.positionSec + waitSec - (audioSyncOffsetMs / 1000) + (deviceOffset / 1000);
-          // Schedule playback: current audioCtx time + wait duration + output latency compensation
-          playAtCtxTime = audioCtx.currentTime + waitSec + outputLatencySec;
-
-          // Wait until the scheduled server moment
-          const waitMs = Math.max(0, (playAtServerMs - clockOffset) - Date.now());
-          if (waitMs > 0) await new Promise(r => setTimeout(r, waitMs));
+        // ---- Fast-start: play immediately from current position ----
+        let fastStartPos;
+        if (fppStatus && fppStatus.positionSec >= 0) {
+          const ageMs = Math.max(0, serverNow - (fppStatus.serverTimestamp || serverNow));
+          fastStartPos = fppStatus.positionSec + (ageMs / 1000)
+            - (audioSyncOffsetMs / 1000) + (deviceOffset / 1000);
         } else {
-          // Fallback: use fppStatus or trackStartedAtMs
-          const pos = fppStatus?.positionSec || Math.max(0, (Date.now() + clockOffset - trackStartedAtMs) / 1000);
-          startPositionSec = pos + 0.1 - (audioSyncOffsetMs / 1000) + (deviceOffset / 1000);
-          playAtCtxTime = audioCtx.currentTime + 0.1 + outputLatencySec;
+          fastStartPos = Math.max(0, (serverNow - trackStartedAtMs) / 1000)
+            - (audioSyncOffsetMs / 1000) + (deviceOffset / 1000);
         }
-
-        if (playGeneration !== myGeneration) return;
-
-        if (startPositionSec < 0) startPositionSec = 0;
-        if (startPositionSec >= audioBuffer.duration) {
+        if (fastStartPos < 0) fastStartPos = 0;
+        if (fastStartPos >= audioBuffer.duration) {
           statusEl.textContent = 'Waiting for next track…';
           return;
         }
 
-        // ---- Schedule AudioBufferSourceNode ----
-        // Record scheduling anchor for position tracking
-        trackScheduledAtAudioCtx = playAtCtxTime;
-        trackScheduledAtPositionSec = startPositionSec;
+        const fastStartCtxTime = audioCtx.currentTime + 0.05 + outputLatencySec;
+        console.log('[ShowPilot] fast-start: pos', fastStartPos.toFixed(3) + 's');
+
+        if (playGeneration !== myGeneration) return;
+
+        // Schedule fast-start source
+        trackScheduledAtAudioCtx = fastStartCtxTime;
+        trackScheduledAtPositionSec = fastStartPos;
         trackScheduledOutputLatency = outputLatencySec;
 
-        // Create source + per-source gain node (needed for crossfade)
         const srcNode = audioCtx.createBufferSource();
         srcNode.buffer = audioBuffer;
         const srcGain = audioCtx.createGain();
         srcGain.gain.value = 1;
         srcNode.connect(srcGain);
         srcGain.connect(gainNode);
-
-        // Schedule playback at the precise audioCtx time
-        srcNode.start(playAtCtxTime, startPositionSec);
+        srcNode.start(fastStartCtxTime, fastStartPos);
 
         currentSource = srcNode;
         currentSourceGain = srcGain;
 
+        srcNode.onended = () => {
+          if (currentSource === srcNode) {
+            currentSource = null;
+            currentSourceGain = null;
+            if (htmlAudio && htmlAudio._isWebAudio) htmlAudio.paused = true;
+          }
+        };
+
+        // ---- One-time grid snap ----
+        // Next 5-second grid boundary, at least 5s away.
+        // SyncPoints arrive ~4s after song change (daemon suppression is longer
+        // than the documented 1.5s). 5s guarantees a syncPoint is available
+        // before the snap fires. Phones play fast-start for up to 5s before
+        // snapping — acceptable given fast-start gets them reasonably close.
+        const GRID_MS = 5000;
+        const playAtServerMs = Math.ceil((serverNow + GRID_MS) / GRID_MS) * GRID_MS;
+        const msUntilSnap = playAtServerMs - serverNow; // ≥ 2000ms
+        const generationAtSchedule = myGeneration;
+
+        // Race syncPoint against snap time — use whichever position is best
+        const snapAnchorPromise = Promise.race([
+          syncPointPromise.then(sp => (sp && sp.filename === data.mediaName) ? sp : null),
+          new Promise(resolve => setTimeout(() => resolve(null), msUntilSnap - 100)),
+        ]);
+
+        setTimeout(async () => {
+          if (playGeneration !== generationAtSchedule) return; // track changed, abort
+
+          const snapAnchor = await snapAnchorPromise;
+          if (playGeneration !== generationAtSchedule) return;
+
+          // Only snap if we have a syncPoint — fppStatus alone is no more
+          // accurate than the fast-start position and a snap from it can
+          // introduce large errors (seen: 899ms). If no syncPoint arrived,
+          // leave fast-start running and let PLL handle residual drift.
+          if (!snapAnchor) {
+            console.log('[ShowPilot] grid-snap: no syncPoint arrived, skipping snap');
+            return;
+          }
+
+          // Compute position from syncPoint, extrapolated to now
+          const snapServerNow = Date.now() + clockOffset;
+          const ageMs = Math.max(0, snapServerNow - snapAnchor.serverTimestamp);
+          let snapPos = snapAnchor.positionSec + (ageMs / 1000)
+            - (audioSyncOffsetMs / 1000) + (deviceOffset / 1000);
+
+          if (snapPos < 0) snapPos = 0;
+          if (snapPos >= audioBuffer.duration) return; // track nearly over, skip
+
+          if (!snapAnchor) {
+            console.log('[ShowPilot] grid-snap: no syncPoint arrived, skipping snap');
+            return;
+          }
+
+          const currentPos = htmlAudio ? htmlAudio.currentTime : fastStartPos;
+          const snapErrorMs = Math.round((snapPos - currentPos) * 1000);
+
+          // Skip if already within 30ms — not worth the cut
+          if (Math.abs(snapErrorMs) < 30) {
+            console.log('[ShowPilot] grid-snap: within 30ms (' + snapErrorMs + 'ms), skipped');
+            return;
+          }
+
+          console.log('[ShowPilot] grid-snap: error', snapErrorMs + 'ms,',
+            'snapping to', snapPos.toFixed(3) + 's, source: syncPoint');
+
+          // Stop old source, start new one at correct position — one brief cut
+          try { srcNode.stop(); } catch (_) {}
+          try { srcNode.disconnect(); } catch (_) {}
+          try { srcGain.disconnect(); } catch (_) {}
+          srcNode.onended = null; // prevent it from nulling currentSource
+
+          const snapCtxTime = audioCtx.currentTime + 0.02 + outputLatencySec;
+          const snapNode = audioCtx.createBufferSource();
+          snapNode.buffer = audioBuffer;
+          const snapGain = audioCtx.createGain();
+          snapGain.gain.value = 1;
+          snapNode.connect(snapGain);
+          snapGain.connect(gainNode);
+          snapNode.start(snapCtxTime, snapPos);
+
+          // Update tracking anchors — PLL reads from these for rest of song
+          trackScheduledAtAudioCtx = snapCtxTime;
+          trackScheduledAtPositionSec = snapPos;
+          trackScheduledOutputLatency = outputLatencySec;
+          if (htmlAudio) htmlAudio._seekedTo = snapPos;
+
+          currentSource = snapNode;
+          currentSourceGain = snapGain;
+
+          snapNode.onended = () => {
+            if (currentSource === snapNode) {
+              currentSource = null;
+              currentSourceGain = null;
+              if (htmlAudio && htmlAudio._isWebAudio) htmlAudio.paused = true;
+            }
+          };
+        }, msUntilSnap);
+
         // Use a dummy htmlAudio object for compatibility with drift display
-        // and other code that checks htmlAudio
         htmlAudio = {
           _isWebAudio: true,
-          _seekedTo: startPositionSec,
-          _seekFppTs: syncPoint?.serverTimestamp ? new Date(syncPoint.serverTimestamp).toISOString().slice(14,22) : 'none',
-          _syncPointTs: syncPoint?.serverTimestamp || 'none',
+          _seekedTo: fastStartPos,
+          _seekFppTs: fppStatus?.serverTimestamp ? new Date(fppStatus.serverTimestamp).toISOString().slice(14,22) : 'none',
+          _syncPointTs: fppStatus?.serverTimestamp || 'none',
           _startupSeeked: false,
           _microSeekCooldown: false,
           paused: false,
@@ -3394,7 +3491,7 @@
             const elapsed = audioCtx.currentTime - trackScheduledAtAudioCtx;
             return trackScheduledAtPositionSec + Math.max(0, elapsed);
           },
-          set currentTime(v) { /* crossfade seeks handled by drift correction */ },
+          set currentTime(v) { /* drift correction handled by PLL */ },
         };
 
         setPlayIcon(true);
@@ -3402,15 +3499,9 @@
         audioStartedAtMs = Date.now();
         pendingPostStartCorrectionAtMs = 0;
 
-        console.info('[ShowPilot] WebAudio scheduled at', playAtCtxTime.toFixed(3), 'ctx sec, position', startPositionSec.toFixed(3) + 's');
-
-        srcNode.onended = () => {
-          if (currentSource === srcNode) {
-            currentSource = null;
-            currentSourceGain = null;
-            if (htmlAudio && htmlAudio._isWebAudio) htmlAudio.paused = true;
-          }
-        };
+        console.info('[ShowPilot] WebAudio fast-start at', fastStartCtxTime.toFixed(3),
+          'ctx sec, position', fastStartPos.toFixed(3) + 's,',
+          'grid-snap in', Math.round(msUntilSnap) + 'ms');
 
       } catch (err) {
         statusEl.textContent = 'Load failed: ' + (err.message || err);
