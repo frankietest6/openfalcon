@@ -2745,18 +2745,20 @@
             setInterval(() => syncClockBurst(3), 30000);
 
             // Persistent fppSyncPoint handler — resolves pending syncPoint
-            // promises from handleTrackChange. Must be registered here where
-            // audioSock is valid, not in handleTrackChange where it may be null.
+            // promises from handleTrackChange. Keyed by filename so concurrent
+            // or rapid song changes each get their own resolver and don't
+            // clobber each other.
             audioSock.on('fppSyncPoint', (msg) => {
               if (!msg || !msg.playing) return;
               if (msg.serverTimestamp) {
                 const measured = msg.serverTimestamp - Date.now();
                 clockOffset = clockOffset * 0.95 + measured * 0.05;
               }
-              // Resolve any pending syncPoint promise
-              if (typeof window._pendingSyncPointResolver === 'function') {
-                window._pendingSyncPointResolver(msg);
-                window._pendingSyncPointResolver = null;
+              // Resolve the pending promise for this specific filename
+              if (msg.filename && window._pendingSyncPointResolvers &&
+                  typeof window._pendingSyncPointResolvers[msg.filename] === 'function') {
+                window._pendingSyncPointResolvers[msg.filename](msg);
+                delete window._pendingSyncPointResolvers[msg.filename];
               }
               window._lastSyncPoint = msg;
             });
@@ -3174,7 +3176,7 @@
         if (data.sequenceName !== currentSequence) {
           handleTrackChange(data);
         } else {
-          // Same track — prefetch audio in background if not already cached/fetching
+          // Same track — prefetch CURRENT song's audio if not already cached
           if (data.streamUrl && data.sequenceName && audioCtx &&
               !decodedBufferCache.has(data.sequenceName) &&
               prefetchedSeq !== data.sequenceName) {
@@ -3190,6 +3192,26 @@
                 }
               })
               .catch(() => { prefetchedSeq = null; }); // reset on error so we retry
+          }
+          // Prefetch NEXT scheduled sequence in background so it's decoded and
+          // ready before the song change fires — eliminates fetch+decode delay
+          // at song-change time, making the snap cut happen sooner.
+          if (data.nextScheduled && audioCtx &&
+              !decodedBufferCache.has(data.nextScheduled) &&
+              prefetchedSeq !== data.nextScheduled) {
+            prefetchedSeq = data.nextScheduled;
+            const nextUrl = window.location.origin +
+              '/api/audio-stream/' + encodeURIComponent(data.nextScheduled);
+            fetch(nextUrl)
+              .then(r => r.ok ? r.arrayBuffer() : null)
+              .then(buf => buf ? audioCtx.decodeAudioData(buf) : null)
+              .then(decoded => {
+                if (decoded) {
+                  decodedBufferCache.set(data.nextScheduled, decoded);
+                  console.info('[ShowPilot] prefetch complete (next):', data.nextScheduled);
+                }
+              })
+              .catch(() => { prefetchedSeq = null; });
           }
           // Same track — just update timing anchor in case server has new info
           if (data.trackStartedAtMs) trackStartedAtMs = data.trackStartedAtMs;
@@ -3219,17 +3241,22 @@
     async function handleTrackChange(data) {
       currentSequence = data.sequenceName;
 
-      // Register syncPoint resolver via window-level variable so it works
-      // even when audioSock isn't initialized yet (first song load).
-      // The persistent handler in startup() will call this resolver.
+      // Register syncPoint resolver keyed by mediaName so rapid song changes
+      // don't clobber each other's resolvers.
+      if (!window._pendingSyncPointResolvers) window._pendingSyncPointResolvers = {};
       let pendingSyncPoint = window._lastSyncPoint || null;
       const syncPointPromise = new Promise((resolve) => {
-        // If we already have a recent syncPoint for this song, use it
+        // If we already have a recent syncPoint for this song, use it immediately
         if (pendingSyncPoint && pendingSyncPoint.filename === data.mediaName) {
           resolve(pendingSyncPoint);
           return;
         }
-        window._pendingSyncPointResolver = resolve;
+        if (data.mediaName) {
+          window._pendingSyncPointResolvers[data.mediaName] = resolve;
+        } else {
+          // No mediaName — can't key the resolver, fall back to legacy global
+          window._pendingSyncPointResolver = resolve;
+        }
       });
 
       // Seed fppStatus from now-playing-audio response on EVERY track
