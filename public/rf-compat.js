@@ -2565,6 +2565,9 @@
     // this, jitter near the threshold would trigger correction on every
     // tick, which would just produce an ugly chain of crossfades.
     let lastCrossfadeAtCtx = 0;
+    let snapPendingUntilMs = 0; // crossfade blocked until snap fires or times out
+    let snapAnchorCtxTime = 0;  // audioCtx.currentTime when snap fired
+    let snapAnchorPosSec = 0;   // audio position at snap — used for clock-free drift
     // Same idea but for HTML5 re-seek correction (in wall-clock ms).
     let lastReseekAtMs = 0;
 
@@ -2750,10 +2753,9 @@
             // clobber each other.
             audioSock.on('fppSyncPoint', (msg) => {
               if (!msg || !msg.playing) return;
-              if (msg.serverTimestamp) {
-                const measured = msg.serverTimestamp - Date.now();
-                clockOffset = clockOffset * 0.95 + measured * 0.05;
-              }
+              // Do NOT update clockOffset here — msg.serverTimestamp is a one-way
+              // timestamp with no RTT correction. Updating clockOffset from it
+              // corrupts the accurate NTP burst estimate from syncClockBurst().
               // Resolve the pending promise for this specific filename
               if (msg.filename && window._pendingSyncPointResolvers &&
                   typeof window._pendingSyncPointResolvers[msg.filename] === 'function') {
@@ -3038,6 +3040,7 @@
     // on a dedicated WebSocket; we use HTTP since we're not building a
     // separate connection just for this.
     let lastClockSyncAt = 0;
+    let bestRttEverMs = Infinity; // best RTT seen across all bursts — guards against high-jitter overwrites
     async function syncClockBurst(burstSize = 5) {
       // Use Socket.io timesync for accurate clock offset measurement.
       // Socket.io bypasses Cloudflare HTTP overhead giving 5-20ms accuracy
@@ -3057,14 +3060,24 @@
               audioSock.off('timesync', handler);
               // Pick lowest-RTT sample — most accurate
               samples.sort((a, b) => a.rtt - b.rtt);
+              const bestRtt = samples[0].rtt;
               const best = samples.slice(0, Math.ceil(samples.length / 2));
               const offsets = best.map(s => s.offset).sort((a, b) => a - b);
               const mid = Math.floor(offsets.length / 2);
-              clockOffset = offsets.length % 2 === 1
+              const newOffset = offsets.length % 2 === 1
                 ? offsets[mid]
                 : (offsets[mid - 1] + offsets[mid]) / 2;
-              lastClockSyncAt = Date.now();
-              console.log('[ShowPilot] timesync complete, clockOffset:', Math.round(clockOffset), 'ms (best RTT:', samples[0].rtt, 'ms)');
+
+              // Only update clockOffset if this burst's RTT is within 3x of
+              // the best RTT we've ever seen. High-jitter bursts (e.g. 200ms RTT
+              // when we've previously seen 5ms) produce inaccurate offsets and
+              // cause the drift display to jump, triggering spurious crossfades.
+              if (bestRtt < bestRttEverMs) bestRttEverMs = bestRtt;
+              if (bestRtt <= bestRttEverMs * 3) {
+                clockOffset = newOffset;
+                lastClockSyncAt = Date.now();
+              }
+              console.log('[ShowPilot] timesync complete, clockOffset:', Math.round(clockOffset), 'ms (best RTT:', bestRtt, 'ms' + (bestRtt > bestRttEverMs * 3 ? ' — REJECTED high jitter' : '') + ')');
               resolve();
             }
           };
@@ -3409,96 +3422,141 @@
           }
         };
 
-        // ---- One-time grid snap ----
-        // Next 5-second grid boundary, at least 5s away.
-        // SyncPoints arrive ~4s after song change (daemon suppression is longer
-        // than the documented 1.5s). 5s guarantees a syncPoint is available
-        // before the snap fires. Phones play fast-start for up to 5s before
-        // snapping — acceptable given fast-start gets them reasonably close.
-        const GRID_MS = 5000;
-        const playAtServerMs = Math.ceil((serverNow + GRID_MS) / GRID_MS) * GRID_MS;
-        const msUntilSnap = playAtServerMs - serverNow; // ≥ 2000ms
+        // ---- Snap on first syncPoint + one follow-up crossfade ----
+        // Goal: everything locked within ~3s of song start.
+        //
+        // 1. Await the first syncPoint for this song (arrives ~2s after change).
+        //    Snap immediately when it arrives — no grid boundary, no waiting.
+        // 2. 500ms after the snap, do one crossfade correction to catch any
+        //    remaining error introduced by the hard cut's scheduling jitter.
+        // 3. The periodic crossfade loop handles anything beyond that only as
+        //    a safety net (threshold 50ms, cooldown 10s).
         const generationAtSchedule = myGeneration;
 
-        // Race syncPoint against snap time — use whichever position is best
-        const snapAnchorPromise = Promise.race([
-          syncPointPromise.then(sp => (sp && sp.filename === data.mediaName) ? sp : null),
-          new Promise(resolve => setTimeout(() => resolve(null), msUntilSnap - 100)),
-        ]);
+        (async () => {
+          // Await syncPoint with 8s timeout fallback
+          const snapAnchor = await Promise.race([
+            syncPointPromise.then(sp => (sp && sp.filename === data.mediaName) ? sp : null),
+            new Promise(resolve => setTimeout(() => resolve(null), 8000)),
+          ]);
 
-        setTimeout(async () => {
-          if (playGeneration !== generationAtSchedule) return; // track changed, abort
-
-          const snapAnchor = await snapAnchorPromise;
           if (playGeneration !== generationAtSchedule) return;
 
-          // Only snap if we have a syncPoint — fppStatus alone is no more
-          // accurate than the fast-start position and a snap from it can
-          // introduce large errors (seen: 899ms). If no syncPoint arrived,
-          // leave fast-start running and let PLL handle residual drift.
           if (!snapAnchor) {
-            console.log('[ShowPilot] grid-snap: no syncPoint arrived, skipping snap');
+            snapPendingUntilMs = 0;
+            console.log('[ShowPilot] snap: no syncPoint within 8s, skipping');
             return;
           }
 
-          // Compute position from syncPoint, extrapolated to now
+          // Compute position from syncPoint
           const snapServerNow = Date.now() + clockOffset;
           const ageMs = Math.max(0, snapServerNow - snapAnchor.serverTimestamp);
           let snapPos = snapAnchor.positionSec + (ageMs / 1000)
             - (audioSyncOffsetMs / 1000) + (deviceOffset / 1000);
 
           if (snapPos < 0) snapPos = 0;
-          if (snapPos >= audioBuffer.duration) return; // track nearly over, skip
-
-          if (!snapAnchor) {
-            console.log('[ShowPilot] grid-snap: no syncPoint arrived, skipping snap');
-            return;
-          }
+          if (snapPos >= audioBuffer.duration) { snapPendingUntilMs = 0; return; }
 
           const currentPos = htmlAudio ? htmlAudio.currentTime : fastStartPos;
           const snapErrorMs = Math.round((snapPos - currentPos) * 1000);
 
-          // Skip if already within 30ms — not worth the cut
-          if (Math.abs(snapErrorMs) < 30) {
-            console.log('[ShowPilot] grid-snap: within 30ms (' + snapErrorMs + 'ms), skipped');
+          if (Math.abs(snapErrorMs) < 20) {
+            snapPendingUntilMs = 0;
+            console.log('[ShowPilot] snap: within 20ms (' + snapErrorMs + 'ms), skipped');
+          } else {
+            console.log('[ShowPilot] snap:', snapErrorMs + 'ms →', snapPos.toFixed(3) + 's');
+
+            try { srcNode.stop(); } catch (_) {}
+            try { srcNode.disconnect(); } catch (_) {}
+            try { srcGain.disconnect(); } catch (_) {}
+            srcNode.onended = null;
+
+            const snapCtxTime = audioCtx.currentTime + 0.02 + outputLatencySec;
+            const snapNode = audioCtx.createBufferSource();
+            snapNode.buffer = audioBuffer;
+            const snapGain = audioCtx.createGain();
+            snapGain.gain.value = 1;
+            snapNode.connect(snapGain);
+            snapGain.connect(gainNode);
+            snapNode.start(snapCtxTime, snapPos);
+
+            trackScheduledAtAudioCtx = snapCtxTime;
+            trackScheduledAtPositionSec = snapPos;
+            trackScheduledOutputLatency = outputLatencySec;
+            if (htmlAudio) htmlAudio._seekedTo = snapPos;
+            audioStartedAtMs = Date.now();
+            snapAnchorCtxTime = snapCtxTime;
+            snapAnchorPosSec = snapPos;
+            currentSource = snapNode;
+            currentSourceGain = snapGain;
+
+            snapNode.onended = () => {
+              if (currentSource === snapNode) {
+                currentSource = null; currentSourceGain = null;
+                if (htmlAudio && htmlAudio._isWebAudio) htmlAudio.paused = true;
+              }
+            };
+          }
+
+          snapPendingUntilMs = 0;
+
+          // ---- Follow-up crossfade 500ms after snap ----
+          await new Promise(resolve => setTimeout(resolve, 500));
+          if (playGeneration !== generationAtSchedule) return;
+          if (!currentBuffer || !currentSource || !currentSourceGain) return;
+
+          const followFppStatus = fppStatus;
+          if (!followFppStatus || followFppStatus.positionSec <= 0) return;
+
+          const followClientTs = followFppStatus.serverTimestamp - clockOffset;
+          const followAge = Math.min(Math.max(Date.now() - followClientTs, 0), 2000);
+          const followTarget = followFppStatus.positionSec + (followAge / 1000)
+            - (audioSyncOffsetMs / 1000) + (deviceOffset / 1000);
+
+          if (followTarget < 0 || followTarget >= audioBuffer.duration - 0.1) return;
+
+          const followError = Math.round((followTarget - htmlAudio.currentTime) * 1000);
+          if (Math.abs(followError) < 20) {
+            console.log('[ShowPilot] follow-up: within 20ms (' + followError + 'ms), skipped');
             return;
           }
 
-          console.log('[ShowPilot] grid-snap: error', snapErrorMs + 'ms,',
-            'snapping to', snapPos.toFixed(3) + 's, source: syncPoint');
+          console.log('[ShowPilot] follow-up crossfade:', followError + 'ms →', followTarget.toFixed(3) + 's');
 
-          // Stop old source, start new one at correct position — one brief cut
-          try { srcNode.stop(); } catch (_) {}
-          try { srcNode.disconnect(); } catch (_) {}
-          try { srcGain.disconnect(); } catch (_) {}
-          srcNode.onended = null; // prevent it from nulling currentSource
+          const FADE = 0.05;
+          const oldNode2 = currentSource;
+          const oldGain2 = currentSourceGain;
+          const newNode2 = audioCtx.createBufferSource();
+          newNode2.buffer = audioBuffer;
+          const newGain2 = audioCtx.createGain();
+          newGain2.gain.setValueAtTime(0, audioCtx.currentTime);
+          newGain2.gain.linearRampToValueAtTime(1, audioCtx.currentTime + FADE);
+          newNode2.connect(newGain2);
+          newGain2.connect(gainNode);
+          newNode2.start(audioCtx.currentTime, followTarget);
+          oldGain2.gain.setValueAtTime(1, audioCtx.currentTime);
+          oldGain2.gain.linearRampToValueAtTime(0, audioCtx.currentTime + FADE);
+          setTimeout(() => {
+            try { oldNode2.stop(); oldNode2.disconnect(); } catch (_) {}
+            try { oldGain2.disconnect(); } catch (_) {}
+          }, FADE * 1000 + 20);
+          oldNode2.onended = null;
 
-          const snapCtxTime = audioCtx.currentTime + 0.02 + outputLatencySec;
-          const snapNode = audioCtx.createBufferSource();
-          snapNode.buffer = audioBuffer;
-          const snapGain = audioCtx.createGain();
-          snapGain.gain.value = 1;
-          snapNode.connect(snapGain);
-          snapGain.connect(gainNode);
-          snapNode.start(snapCtxTime, snapPos);
-
-          // Update tracking anchors — PLL reads from these for rest of song
-          trackScheduledAtAudioCtx = snapCtxTime;
-          trackScheduledAtPositionSec = snapPos;
-          trackScheduledOutputLatency = outputLatencySec;
-          if (htmlAudio) htmlAudio._seekedTo = snapPos;
-
-          currentSource = snapNode;
-          currentSourceGain = snapGain;
-
-          snapNode.onended = () => {
-            if (currentSource === snapNode) {
-              currentSource = null;
-              currentSourceGain = null;
+          trackScheduledAtAudioCtx = audioCtx.currentTime;
+          trackScheduledAtPositionSec = followTarget;
+          lastCrossfadeAtCtx = audioCtx.currentTime;
+          audioStartedAtMs = Date.now();
+          snapAnchorCtxTime = audioCtx.currentTime;
+          snapAnchorPosSec = followTarget;
+          currentSource = newNode2;
+          currentSourceGain = newGain2;
+          newNode2.onended = () => {
+            if (currentSource === newNode2) {
+              currentSource = null; currentSourceGain = null;
               if (htmlAudio && htmlAudio._isWebAudio) htmlAudio.paused = true;
             }
           };
-        }, msUntilSnap);
+        })();
 
         // Use a dummy htmlAudio object for compatibility with drift display
         htmlAudio = {
@@ -3526,9 +3584,11 @@
         audioStartedAtMs = Date.now();
         pendingPostStartCorrectionAtMs = 0;
 
+        // Block periodic crossfade until snap+follow-up resolves (~3s)
+        snapPendingUntilMs = Date.now() + 9000;
+
         console.info('[ShowPilot] WebAudio fast-start at', fastStartCtxTime.toFixed(3),
-          'ctx sec, position', fastStartPos.toFixed(3) + 's,',
-          'grid-snap in', Math.round(msUntilSnap) + 'ms');
+          'ctx sec, position', fastStartPos.toFixed(3) + 's');
 
       } catch (err) {
         statusEl.textContent = 'Load failed: ' + (err.message || err);
@@ -3725,6 +3785,9 @@
       lastCrossfadeAtCtx = 0;
       lastReseekAtMs = 0;
       pendingPostStartCorrectionAtMs = 0;
+      snapPendingUntilMs = 0;
+      snapAnchorCtxTime = 0;
+      snapAnchorPosSec = 0;
     }
 
     // If the audio gate fires during playback (e.g. user walked outside the
@@ -3775,8 +3838,21 @@
         const clientTimeOfUpdate = fppStatus.serverTimestamp - clockOffset;
         const msSinceFppUpdate = Math.min(Math.max(Date.now() - clientTimeOfUpdate, 0), 2000);
         const fppPositionNow = fppStatus.positionSec + (msSinceFppUpdate / 1000) - (deviceOffset / 1000);
-        const drift = htmlAudio.currentTime - fppPositionNow;
-        const driftMs = Math.round(drift * 1000);
+
+        // ---- Drift measurement ----
+        // Primary: audio-clock-relative drift from snap anchor.
+        // This is device-clock-free — both phones compute the same value
+        // because they both anchored to the same syncPoint position.
+        // Falls back to fppPositionNow when no snap anchor is set.
+        let drift, driftMs;
+        if (snapAnchorCtxTime > 0 && snapAnchorPosSec > 0) {
+          const expectedPos = snapAnchorPosSec + (audioCtx.currentTime - snapAnchorCtxTime);
+          drift = htmlAudio.currentTime - expectedPos;
+          driftMs = Math.round(drift * 1000);
+        } else {
+          drift = htmlAudio.currentTime - fppPositionNow;
+          driftMs = Math.round(drift * 1000);
+        }
 
         // Calibration measures RAW drift (without deviceOffset) to learn the
         // true device latency. Only calibrate once — lock after first 20 samples.
@@ -3837,55 +3913,74 @@
         // Dead zone: < 20ms — reset to 1.0, not worth correcting.
         // Large drift (> 500ms): snap via re-seek.
         // Don't correct within 3s of a snap — let the new source settle first.
-        const msSinceSnap = audioStartedAtMs > 0 ? Date.now() - audioStartedAtMs : 0;
-        if (msSinceSnap > 3000) {
-          const absDrift = Math.abs(correctionDriftMs);
-          if (absDrift < 20) {
-            // In sync — reset rate to 1.0
-            if (currentSource && Math.abs(lastAppliedRate - 1.0) > 0.0001) {
-              currentSource.playbackRate.value = 1.0;
-              lastAppliedRate = 1.0;
-            }
-          } else if (absDrift < 500) {
-            // Proportional correction, max ±0.5%
-            // Negative drift = behind FPP = speed up (rate > 1.0)
-            const correction = Math.max(-0.005, Math.min(0.005, -correctionDriftMs / 10000));
-            const targetRate = 1.0 + correction;
-            if (Math.abs(targetRate - lastAppliedRate) > 0.0001) {
-              if (currentSource) currentSource.playbackRate.value = targetRate;
-              lastAppliedRate = targetRate;
-            }
-          } else {
-            // Large drift — re-seek
-            const snapTarget = fppPositionNow;
-            if (snapTarget >= 0 && htmlAudio.duration && snapTarget < htmlAudio.duration - 0.1) {
-              console.log('[ShowPilot] PLL re-seek: drift', correctionDriftMs + 'ms, snapping');
-              if (currentSource) {
-                try { currentSource.stop(); currentSource.disconnect(); } catch (_) {}
-                if (currentSourceGain) { try { currentSourceGain.disconnect(); } catch (_) {} }
-                currentSource.onended = null;
+        // ---- Crossfade drift correction (PulseMesh-style) ----
+        // Only fires when fppStatus is fresh (< 200ms stale) — stale readings
+        // produce inaccurate targets and cause the correction to overshoot.
+        const CROSSFADE_THRESHOLD_MS = 50;
+        const CROSSFADE_DURATION_SEC = 0.05; // 50ms
+        const CROSSFADE_COOLDOWN_MS = 10000;
+        const msSinceLastCrossfade = lastCrossfadeAtCtx > 0
+          ? (audioCtx.currentTime - lastCrossfadeAtCtx) * 1000 : Infinity;
+        const fppStatusAgeMs = fppStatus
+          ? Math.max(0, Date.now() - (fppStatus.serverTimestamp - clockOffset)) : Infinity;
+
+        if (Date.now() > snapPendingUntilMs &&
+            msSinceLastCrossfade > CROSSFADE_COOLDOWN_MS &&
+            fppStatusAgeMs < 200 &&
+            Math.abs(correctionDriftMs) > CROSSFADE_THRESHOLD_MS &&
+            currentBuffer && currentSource && currentSourceGain) {
+
+          // Use fresh fppStatus directly — no stale extrapolation
+          const freshAge = fppStatusAgeMs / 1000;
+          const targetPos = fppStatus.positionSec + freshAge
+            - (audioSyncOffsetMs / 1000) + (deviceOffset / 1000)
+            + CROSSFADE_DURATION_SEC;
+          if (targetPos >= 0 && targetPos < currentBuffer.duration - 0.1) {
+            console.log('[ShowPilot] crossfade correction: drift', correctionDriftMs + 'ms →',
+              targetPos.toFixed(3) + 's (fppAge ' + Math.round(fppStatusAgeMs) + 'ms)');
+
+            // Capture by value — snap or song change may reassign currentSource
+            // before the fadeout setTimeout fires
+            const oldNode = currentSource;
+            const oldGain = currentSourceGain;
+
+            // New source starts at target position
+            const newNode = audioCtx.createBufferSource();
+            newNode.buffer = currentBuffer;
+            const newGain = audioCtx.createGain();
+            newGain.gain.setValueAtTime(0, audioCtx.currentTime);
+            newGain.gain.linearRampToValueAtTime(1, audioCtx.currentTime + CROSSFADE_DURATION_SEC);
+            newNode.connect(newGain);
+            newGain.connect(gainNode);
+            newNode.start(audioCtx.currentTime, targetPos);
+
+            // Fade out old source
+            oldGain.gain.setValueAtTime(1, audioCtx.currentTime);
+            oldGain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + CROSSFADE_DURATION_SEC);
+            setTimeout(() => {
+              try { oldNode.stop(); oldNode.disconnect(); } catch (_) {}
+              try { oldGain.disconnect(); } catch (_) {}
+            }, CROSSFADE_DURATION_SEC * 1000 + 20);
+            oldNode.onended = null;
+
+            // Hand off tracking to new source
+            // Anchor: at audioCtx.currentTime the new source is at targetPos.
+            // The source started at audioCtx.currentTime with offset targetPos,
+            // so currentTime - scheduledAt + targetPos = current position.
+            trackScheduledAtAudioCtx = audioCtx.currentTime;
+            trackScheduledAtPositionSec = targetPos;
+            lastCrossfadeAtCtx = audioCtx.currentTime;
+            lastAppliedRate = 1.0;
+
+            currentSource = newNode;
+            currentSourceGain = newGain;
+
+            newNode.onended = () => {
+              if (currentSource === newNode) {
+                currentSource = null; currentSourceGain = null;
+                if (htmlAudio && htmlAudio._isWebAudio) htmlAudio.paused = true;
               }
-              const reseekCtxTime = audioCtx.currentTime + 0.02 + trackScheduledOutputLatency;
-              const reseekNode = audioCtx.createBufferSource();
-              reseekNode.buffer = currentBuffer;
-              const reseekGain = audioCtx.createGain();
-              reseekGain.gain.value = 1;
-              reseekNode.connect(reseekGain);
-              reseekGain.connect(gainNode);
-              reseekNode.start(reseekCtxTime, snapTarget);
-              trackScheduledAtAudioCtx = reseekCtxTime;
-              trackScheduledAtPositionSec = snapTarget;
-              currentSource = reseekNode;
-              currentSourceGain = reseekGain;
-              lastAppliedRate = 1.0;
-              audioStartedAtMs = Date.now(); // reset snap cooldown
-              reseekNode.onended = () => {
-                if (currentSource === reseekNode) {
-                  currentSource = null; currentSourceGain = null;
-                  if (htmlAudio && htmlAudio._isWebAudio) htmlAudio.paused = true;
-                }
-              };
-            }
+            };
           }
         }
         return;
