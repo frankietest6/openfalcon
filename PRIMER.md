@@ -387,6 +387,12 @@ If `fppPos` and `audioPos` differ significantly but `drift` shows ~0ms, that's e
 
 **In-app updater (v0.33.0):** Git-in-place, no symlink reshape. Single snapshot at `data/.snapshots/previous/`. audio-cache excluded from snapshots. Docker gated to status-only.
 
+**Restart=always in systemd unit (v0.33.140):** The README's systemd service guide previously had `Restart=on-failure`. The in-app updater calls `process.exit(0)` (clean exit, code 0) to pick up new code after an update — `on-failure` does not restart on clean exits, so the updater appeared to work but left ShowPilot stopped. Fixed to `Restart=always` in v0.33.140. Users on older installs need to update their service file manually:
+```bash
+sudo sed -i 's/Restart=on-failure/Restart=always/' /etc/systemd/system/showpilot.service
+sudo systemctl daemon-reload
+```
+
 **Web Audio over HTML5 `<audio>` (v0.33.112):** Permanent. MP3 seeking on `<audio>` causes decoder restarts with audible artifacts. PCM-decoded Web Audio is the correct architecture. Do not propose reverting.
 
 **No playbackRate for sync (v0.33.134):** playbackRate correction was tried and abandoned. It oscillates because the drift measurement has lag, and ±0.5% causes audible pitch changes on some devices. Crossfade is the correct correction mechanism — inaudible 50ms fade between sources at the correct position.
