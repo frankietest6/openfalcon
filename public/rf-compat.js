@@ -3751,7 +3751,7 @@
       playGeneration++; // cancel any in-flight scheduled play
       fppStatus = null;
       smoothedDriftMs = 0;
-      if (calibrationSamples.length < 20) calibrationSamples = [];
+      calibrationSamples = []; // recalibrate every song
       prefetchPromise = null;
       prefetchedSeq = null;
       // Keep decoded buffer cache — avoids re-fetch if same song plays again
@@ -3837,6 +3837,7 @@
         // Cap at 2s — don't extrapolate beyond that on very stale readings.
         const clientTimeOfUpdate = fppStatus.serverTimestamp - clockOffset;
         const msSinceFppUpdate = Math.min(Math.max(Date.now() - clientTimeOfUpdate, 0), 2000);
+        const fppStatusAgeMs = Math.max(0, Date.now() - clientTimeOfUpdate); // uncapped, for freshness checks
         const fppPositionNow = fppStatus.positionSec + (msSinceFppUpdate / 1000) - (deviceOffset / 1000);
 
         // ---- Drift measurement ----
@@ -3854,22 +3855,29 @@
           driftMs = Math.round(drift * 1000);
         }
 
-        // Calibration measures RAW drift (without deviceOffset) to learn the
-        // true device latency. Only calibrate once — lock after first 20 samples.
+        // ---- Fast calibration ----
+        // Measure audioPos - fppPos starting 3s after the follow-up crossfade
+        // (audioStartedAtMs is reset there). Take 5 samples, use median.
+        // Applied to snapPos on the NEXT song — automatically corrects the
+        // fixed speaker offset without manual tuning.
+        // Recalibrates every song so it adapts to changing conditions.
         const rawFppPositionNow = fppStatus.positionSec + (msSinceFppUpdate / 1000);
         const rawDriftMs = Math.round((htmlAudio.currentTime - rawFppPositionNow) * 1000);
         const playingForMs = Date.now() - audioStartedAtMs;
-        const isCalibrated = calibrationSamples.length >= 20;
-        if (!isCalibrated && playingForMs > 15000) {
+        const isCalibrated = calibrationSamples.length >= 5;
+        if (!isCalibrated && playingForMs > 3000 && fppStatusAgeMs < 300) {
           calibrationSamples.push(rawDriftMs);
-          if (calibrationSamples.length === 20) {
+          if (calibrationSamples.length === 5) {
             const sorted = [...calibrationSamples].sort((a, b) => a - b);
-            const median = sorted[10];
-            deviceOffset = median;
-            try {
-              localStorage.setItem('sp_device_offset', median.toString());
-              console.log('[ShowPilot] device offset calibrated:', median, 'ms — locked');
-            } catch (_) {}
+            const median = sorted[2]; // middle of 5
+            // Sanity check — ignore wildly implausible values
+            if (Math.abs(median) < 1000) {
+              deviceOffset = median;
+              try {
+                localStorage.setItem('sp_device_offset', median.toString());
+                console.log('[ShowPilot] device offset calibrated:', median, 'ms (5-sample fast cal)');
+              } catch (_) {}
+            }
           }
         }
 
@@ -3900,7 +3908,7 @@
             `seekedTo:    ${(htmlAudio._seekedTo || 0).toFixed(3)}s`,
             `seekFppTs:   ${htmlAudio._seekFppTs || 'none'}`,
             `syncPtTs:    ${htmlAudio._syncPointTs || 'none'}`,
-            `deviceOff:   ${Math.round(deviceOffset)}ms (${calibrationSamples.length}/20)`,
+            `deviceOff:   ${Math.round(deviceOffset)}ms (${calibrationSamples.length}/5)`,
             `hwLatency:   ${hardwareLatencyMs}ms`,
           ].join('\n');
         }
@@ -3921,8 +3929,6 @@
         const CROSSFADE_COOLDOWN_MS = 10000;
         const msSinceLastCrossfade = lastCrossfadeAtCtx > 0
           ? (audioCtx.currentTime - lastCrossfadeAtCtx) * 1000 : Infinity;
-        const fppStatusAgeMs = fppStatus
-          ? Math.max(0, Date.now() - (fppStatus.serverTimestamp - clockOffset)) : Infinity;
 
         if (Date.now() > snapPendingUntilMs &&
             msSinceLastCrossfade > CROSSFADE_COOLDOWN_MS &&
