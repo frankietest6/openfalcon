@@ -3829,9 +3829,62 @@
           ].join('\n');
         }
 
-        // No active drift correction — devices sync at song start via
-        // syncPoint coordination. Fixed offset to FPP speakers tuned via
-        // audioSyncOffsetMs in admin settings.
+        // ---- PLL: correct drift via playbackRate ----
+        // Nudge playbackRate to pull audio toward FPP's position.
+        // Small drift (< 30ms): do nothing — within normal jitter.
+        // Medium drift (30-500ms): adjust rate by up to ±2% to converge slowly.
+        // Large drift (> 500ms): snap via re-seek (audible but necessary).
+        // Rate resets to 1.0 when drift is within 10ms.
+        // Don't correct within 3s of a snap — let the new source settle first.
+        const msSinceSnap = audioStartedAtMs > 0 ? Date.now() - audioStartedAtMs : 0;
+        if (msSinceSnap > 3000) {
+          const absDrift = Math.abs(correctionDriftMs);
+          if (absDrift < 10) {
+            // In sync — reset rate
+            if (currentSource) currentSource.playbackRate.value = 1.0;
+            lastAppliedRate = 1.0;
+          } else if (absDrift < 500) {
+            // Proportional rate correction: max ±2%
+            // Negative drift = behind = need to speed up (rate > 1)
+            const correction = Math.max(-0.02, Math.min(0.02, -correctionDriftMs / 5000));
+            const targetRate = 1.0 + correction;
+            if (Math.abs(targetRate - lastAppliedRate) > 0.001) {
+              if (currentSource) currentSource.playbackRate.value = targetRate;
+              lastAppliedRate = targetRate;
+            }
+          } else {
+            // Large drift — re-seek
+            const snapTarget = fppPositionNow;
+            if (snapTarget >= 0 && htmlAudio.duration && snapTarget < htmlAudio.duration - 0.1) {
+              console.log('[ShowPilot] PLL re-seek: drift', correctionDriftMs + 'ms, snapping');
+              if (currentSource) {
+                try { currentSource.stop(); currentSource.disconnect(); } catch (_) {}
+                if (currentSourceGain) { try { currentSourceGain.disconnect(); } catch (_) {} }
+                currentSource.onended = null;
+              }
+              const reseekCtxTime = audioCtx.currentTime + 0.02 + trackScheduledOutputLatency;
+              const reseekNode = audioCtx.createBufferSource();
+              reseekNode.buffer = currentBuffer;
+              const reseekGain = audioCtx.createGain();
+              reseekGain.gain.value = 1;
+              reseekNode.connect(reseekGain);
+              reseekGain.connect(gainNode);
+              reseekNode.start(reseekCtxTime, snapTarget);
+              trackScheduledAtAudioCtx = reseekCtxTime;
+              trackScheduledAtPositionSec = snapTarget;
+              currentSource = reseekNode;
+              currentSourceGain = reseekGain;
+              lastAppliedRate = 1.0;
+              audioStartedAtMs = Date.now(); // reset snap cooldown
+              reseekNode.onended = () => {
+                if (currentSource === reseekNode) {
+                  currentSource = null; currentSourceGain = null;
+                  if (htmlAudio && htmlAudio._isWebAudio) htmlAudio.paused = true;
+                }
+              };
+            }
+          }
+        }
         return;
       }
 
