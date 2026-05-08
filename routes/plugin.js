@@ -379,7 +379,7 @@ router.get('/state', (req, res) => {
   // correct return point while the interrupting song plays. Only save on the
   // first handoff — if a second vote/request wins before the main playlist
   // resumes, the original baseline is still where FPP will return to.
-  if (returnedWinner || response.nextRequest) {
+  if (response.winningVote || response.nextRequest) {
     const npState = db.prepare('SELECT next_sequence_name, baseline_next_sequence_name FROM now_playing WHERE id = 1').get();
     if (npState && !npState.baseline_next_sequence_name && npState.next_sequence_name) {
       setBaselineNext(npState.next_sequence_name);
