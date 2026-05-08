@@ -1824,7 +1824,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.147</span>
+        <span class="app-version">v0.33.148</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -2671,18 +2671,22 @@
                      style="width: 60px;" />
               <label for="cfg_viewer_request_limit" style="margin: 0;">pending request(s) at a time</label>
             </div>
-            <div class="row">
+            <p class="muted" style="font-size: 0.8rem; margin: 0.2rem 0 0 1.75rem;">Prevents one viewer from flooding the queue. Their slot opens again once a request plays.</p>
+            <div class="row" style="margin-top: 0.5rem;">
               <input type="checkbox" id="cfg_block_request_currently_playing" onchange="saveSetting('block_request_currently_playing', this.checked ? 1 : 0)" />
               <label for="cfg_block_request_currently_playing" style="margin: 0;">Block requests for the song that's currently playing</label>
             </div>
-            <div class="row">
+            <p class="muted" style="font-size: 0.8rem; margin: 0.2rem 0 0 1.75rem;">Viewers can't re-request a song while it's on — they'll get a "that's playing now" message.</p>
+            <div class="row" style="margin-top: 0.5rem;">
               <input type="checkbox" id="cfg_block_request_next_up" onchange="saveSetting('block_request_next_up', this.checked ? 1 : 0)" />
               <label for="cfg_block_request_next_up" style="margin: 0;">Block requests for the song that's already up next</label>
             </div>
-            <div class="row">
+            <p class="muted" style="font-size: 0.8rem; margin: 0.2rem 0 0 1.75rem;">Prevents duplicates at the front of the queue — if a song is already the next to play, new requests for it are rejected.</p>
+            <div class="row" style="margin-top: 0.5rem;">
               <input type="checkbox" id="cfg_hide_sequence_after_played" onchange="saveSetting('hide_sequence_after_played', this.checked ? 1 : 0)" />
-              <label for="cfg_hide_sequence_after_played" style="margin: 0;">Hide sequence from list after played</label>
+              <label for="cfg_hide_sequence_after_played" style="margin: 0;">Hide song from the request list after it plays</label>
             </div>
+            <p class="muted" style="font-size: 0.8rem; margin: 0.2rem 0 0 1.75rem;">Song disappears from the viewer's request grid after playing and stays hidden for the cooldown period set on each sequence.</p>
           </div>
 
           <!-- VOTING SETTINGS -->
@@ -2691,22 +2695,27 @@
               <input type="checkbox" id="cfg_prevent_multiple_votes" onchange="saveSetting('prevent_multiple_votes', this.checked ? 1 : 0); updateAllowVoteChangeVisibility();" />
               <label for="cfg_prevent_multiple_votes" style="margin: 0;">Limit each viewer to one vote per round</label>
             </div>
-            <div class="row" id="cfg_allow_vote_change_row" style="margin-left: 1.5rem;">
+            <p class="muted" style="font-size: 0.8rem; margin: 0.2rem 0 0 1.75rem;">Each viewer token can only vote once. Prevents ballot-stuffing from a single phone.</p>
+            <div class="row" id="cfg_allow_vote_change_row" style="margin-left: 1.5rem; margin-top: 0.5rem;">
               <input type="checkbox" id="cfg_allow_vote_change" onchange="saveSetting('allow_vote_change', this.checked ? 1 : 0)" />
               <label for="cfg_allow_vote_change" style="margin: 0;">Let viewers change their vote (still 1 vote each — clicking another song moves it)</label>
             </div>
-            <div class="row">
+            <p class="muted" style="font-size: 0.8rem; margin: 0.2rem 0 0 3.25rem;">Only applies when the limit above is on. Tapping a different song swaps the vote atomically — counts never show a viewer having two votes at once.</p>
+            <div class="row" style="margin-top: 0.5rem;">
               <input type="checkbox" id="cfg_reset_votes_after_round" onchange="saveSetting('reset_votes_after_round', this.checked ? 1 : 0)" />
               <label for="cfg_reset_votes_after_round" style="margin: 0;">Auto-reset votes after winner plays</label>
             </div>
-            <div class="row">
+            <p class="muted" style="font-size: 0.8rem; margin: 0.2rem 0 0 1.75rem;">Clears all votes when the winning song starts playing so each round starts fresh. Recommended on.</p>
+            <div class="row" style="margin-top: 0.5rem;">
               <input type="checkbox" id="cfg_block_vote_currently_playing" onchange="saveSetting('block_vote_currently_playing', this.checked ? 1 : 0)" />
               <label for="cfg_block_vote_currently_playing" style="margin: 0;">Block votes for the song that's currently playing</label>
             </div>
-            <div class="row">
+            <p class="muted" style="font-size: 0.8rem; margin: 0.2rem 0 0 1.75rem;">Viewers can't vote for the song already on — it won't be the next winner anyway.</p>
+            <div class="row" style="margin-top: 0.5rem;">
               <input type="checkbox" id="cfg_block_vote_next_up" onchange="saveSetting('block_vote_next_up', this.checked ? 1 : 0)" />
-              <label for="cfg_block_vote_next_up" style="margin: 0;">Block votes for the song that's already winning</label>
+              <label for="cfg_block_vote_next_up" style="margin: 0;">Block votes for the song that's already leading</label>
             </div>
+            <p class="muted" style="font-size: 0.8rem; margin: 0.2rem 0 0 1.75rem;">Prevents piling on the current frontrunner — keeps the vote competitive by directing viewers to other songs.</p>
 
             <h3 style="margin-top: 1.25rem;">Tiebreak</h3>
             <p class="muted" style="font-size: 0.85rem; margin: 0 0 0.5rem;">
