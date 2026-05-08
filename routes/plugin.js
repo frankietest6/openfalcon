@@ -21,6 +21,7 @@ const {
   updateConfig,
   setNowPlaying,
   setNextScheduled,
+  setBaselineNext,
   getHighestVotedSequence,
   detectVoteTie,
   getTiebreakLeader,
@@ -374,6 +375,17 @@ router.get('/state', (req, res) => {
     }
   }
 
+  // Snapshot the main-playlist "next" at handoff time so the viewer shows the
+  // correct return point while the interrupting song plays. Only save on the
+  // first handoff — if a second vote/request wins before the main playlist
+  // resumes, the original baseline is still where FPP will return to.
+  if (returnedWinner || response.nextRequest) {
+    const npState = db.prepare('SELECT next_sequence_name, baseline_next_sequence_name FROM now_playing WHERE id = 1').get();
+    if (npState && !npState.baseline_next_sequence_name && npState.next_sequence_name) {
+      setBaselineNext(npState.next_sequence_name);
+    }
+  }
+
   res.json(response);
 });
 
@@ -432,6 +444,15 @@ router.post('/playing', (req, res) => {
   // (See round-close logic below.)
   const previouslyPlaying = db.prepare(`SELECT sequence_name FROM now_playing WHERE id = 1`).get();
   const isSequenceChange = !!name && (!previouslyPlaying || previouslyPlaying.sequence_name !== name);
+
+  // When the main playlist resumes at the expected return point, clear the
+  // baseline so subsequent "Up Next" display switches back to FPP's live report.
+  if (isSequenceChange && name) {
+    const npBaseline = db.prepare('SELECT baseline_next_sequence_name FROM now_playing WHERE id = 1').get();
+    if (npBaseline && npBaseline.baseline_next_sequence_name === name) {
+      setBaselineNext(null);
+    }
+  }
 
   // If the plugin reported a playback position, backdate started_at so the
   // audio player knows the song has been playing for that long. This handles
@@ -667,7 +688,14 @@ router.post('/next', (req, res) => {
   setNextScheduled(name || null);
 
   const io = req.app.get('io');
-  if (io) io.emit('nextScheduled', { sequenceName: name || null });
+  if (io) {
+    // While an interrupting song plays, FPP reports the next song in the
+    // voting/request playlist. Emit the baseline instead so socket-connected
+    // viewers see the main-playlist return point, consistent with /api/state.
+    const npBaseline = db.prepare('SELECT baseline_next_sequence_name FROM now_playing WHERE id = 1').get();
+    const emitName = (npBaseline && npBaseline.baseline_next_sequence_name) || name || null;
+    io.emit('nextScheduled', { sequenceName: emitName });
+  }
 
   res.json({ ok: true });
 });
