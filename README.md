@@ -11,7 +11,7 @@ ShowPilot pairs with a Falcon Player (FPP) plugin to let your visitors:
 
 You get an admin dashboard with stats, queue management, sequence configuration, viewer-page editor, theming, and multi-user authentication.
 
-> **Migrating from Remote Falcon?** ShowPilot's viewer page renderer is **fully compatible with Remote Falcon templates**. All the standard placeholders (`{PLAYLISTS}`, `{NOW_PLAYING}`, `{JUKEBOX_QUEUE}`, `{NEXT_PLAYLIST}`, `{QUEUE_DEPTH}`, `{LOCATION_CODE}`, etc.) and mode containers (`{playlist-voting-dynamic-container}`, `{jukebox-dynamic-container}`, `{after-hours-message}`, `{location-code-dynamic-container}`) work identically. Paste your existing Remote Falcon viewer HTML into ShowPilot's editor and it just works — no template rewrite needed.
+> **Migrating from Remote Falcon?** ShowPilot's viewer page renderer is fully compatible with Remote Falcon templates. All the standard placeholders (`{PLAYLISTS}`, `{NOW_PLAYING}`, `{JUKEBOX_QUEUE}`, `{NEXT_PLAYLIST}`, `{QUEUE_DEPTH}`, `{LOCATION_CODE}`, etc.) and mode containers (`{playlist-voting-dynamic-container}`, `{jukebox-dynamic-container}`, `{after-hours-message}`, `{location-code-dynamic-container}`) work identically. Paste your existing Remote Falcon viewer HTML into ShowPilot's editor and it just works — no template rewrite needed. If something doesn't render quite right out of the box (older RF templates sometimes lack a few of the toast hooks or the after-hours setup ShowPilot expects), drop your HTML into the [RF Template Converter](https://showpilot.dev/convert) — it adds the missing pieces, flags layout traps, and gives you back a paste-ready ShowPilot template.
 
 ---
 
