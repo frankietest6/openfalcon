@@ -1,6 +1,6 @@
 # ShowPilot
 
-[![Discord](https://img.shields.io/badge/Discord-Join%20the%20chat-5865F2?logo=discord&logoColor=white)](https://discord.gg/UpmcXmWfN9) [![Facebook](https://img.shields.io/badge/Facebook-Join%20the%20group-1877F2?logo=facebook&logoColor=white)](https://www.facebook.com/groups/showpilot)
+[![Website](https://img.shields.io/badge/Website-showpilot.dev-ffb155?logo=googlechrome&logoColor=white)](https://showpilot.dev) [![Discord](https://img.shields.io/badge/Discord-Join%20the%20chat-5865F2?logo=discord&logoColor=white)](https://discord.gg/UpmcXmWfN9) [![Facebook](https://img.shields.io/badge/Facebook-Join%20the%20group-1877F2?logo=facebook&logoColor=white)](https://www.facebook.com/groups/showpilot)
 
 **Self-hosted light show viewer control server.** A drop-in alternative to Remote Falcon for hobbyists who want to run their own infrastructure without relying on a cloud service.
 
