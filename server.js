@@ -196,6 +196,9 @@ app.use('/api', require('./routes/viewer'));
 // We just pass through every request (network-first, no caching),
 // which satisfies the criteria without changing actual network behavior.
 const PWA_SERVICE_WORKER = `
+// SW v2 (v0.33.143): for HTML navigations, force network revalidation
+// to defeat browser heuristic caching of the viewer page. Other request
+// types (images, JS, CSS) pass through with default cache behavior.
 self.addEventListener('install', (event) => {
   self.skipWaiting();
 });
@@ -203,11 +206,20 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim());
 });
 self.addEventListener('fetch', (event) => {
-  // Real fetch handler — responds with the network result. Without
-  // this responding to the start_url, Android Chrome won't consider
-  // the page installable and "Add to Home Screen" produces a shortcut
-  // bookmark instead of a true PWA install.
-  event.respondWith(fetch(event.request).catch(() => {
+  const req = event.request;
+  // For navigation requests (the HTML page itself), force network
+  // revalidation. This bypasses any stale browser-cached HTML left
+  // over from before v0.33.143's Cache-Control fix landed.
+  if (req.mode === 'navigate') {
+    event.respondWith(fetch(req, { cache: 'reload' }).catch(() => {
+      return new Response('Network error', { status: 503 });
+    }));
+    return;
+  }
+  // Everything else: pass through with default cache behavior.
+  // Real fetch handler is required for PWA installability — Android
+  // Chrome won't install pages whose SW lacks a fetch handler.
+  event.respondWith(fetch(req).catch(() => {
     return new Response('Network error', { status: 503 });
   }));
 });
@@ -477,6 +489,15 @@ app.get('/', (req, res) => {
     });
 
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    // The viewer page is dynamic per-request (current sequences, vote counts,
+    // now-playing). Without explicit cache headers, browsers apply heuristic
+    // caching based on Last-Modified — often hours. That meant deploys took
+    // hours to reach existing visitors even after the server was patched.
+    // \`no-cache\` tells the browser it MAY cache but MUST revalidate every
+    // time, which gives the network round-trip back. Combined with the SW's
+    // network-first passthrough, every page load reflects the current server
+    // state without permanently caching.
+    res.setHeader('Cache-Control', 'no-cache, must-revalidate');
 
     // Source-obfuscation deterrent. Wraps the rendered HTML in a stub that:
     //   (1) Looks like nothing-to-see-here in view-source

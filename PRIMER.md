@@ -1,25 +1,25 @@
 # ShowPilot Project Primer
 
-This document gives you (Claude, in a future conversation) the context you need to help Will work on ShowPilot effectively. Read this first before any other project files.
+This document orients new contributors (humans or AI assistants) to ShowPilot's architecture, conventions, and the non-obvious invariants that you'll otherwise rediscover painfully. Read this before opening other source files.
 
 ---
 
 ## What ShowPilot is
 
-ShowPilot is a self-hosted companion app for Falcon Player (FPP) — the open-source software that runs Christmas and Halloween light shows. It adds a public-facing viewer page where show visitors can vote on songs, make jukebox requests, and listen to the show audio on their phones in sync with the physical speakers.
+ShowPilot is a self-hosted companion app for [Falcon Player (FPP)](https://github.com/FalconChristmas/fpp) — the open-source software that runs Christmas and Halloween light shows. ShowPilot adds a public-facing **viewer page** where show visitors can vote on songs, make jukebox requests, and listen to the show audio on their phones in sync with the physical speakers at the show.
 
 Key things it does:
 - Serve a themed viewer page (HTML/CSS template the operator can customize)
 - Run a jukebox/voting system for visitor interaction
 - Stream audio to phones in sync with FPP playback
-- Manage sequences (the songs/effects that play)
-- Edit the viewer page template (HTML/CSS)
+- Manage sequences (the songs/effects FPP plays)
+- Edit the viewer page template (HTML/CSS, including a visual designer)
 - Monitor plugin connectivity, queue activity, vote tallies
 - Export/restore full instance backups
 
 ShowPilot talks to FPP via a companion plugin (`ShowPilot-plugin`) that runs inside FPP. The plugin syncs sequence metadata, reports playback state, and pushes interaction events.
 
-**Branding/domain context:** Will runs his show as "Lights On Drake" at lightsondrake.org. ShowPilot is the underlying software (formerly "OpenFalcon" — references to that name still appear in some config defaults).
+There is also a stripped-down sibling project, **ShowPilot-Lite**, which runs as an FPP plugin directly on the FPP host (no separate machine needed). Lite removes the audio-streaming features, intended for operators using PulseMesh, FM transmitters, or Icecast for audio delivery. Non-audio changes generally land in both repos under matching version numbers.
 
 ---
 
@@ -34,7 +34,7 @@ ShowPilot talks to FPP via a companion plugin (`ShowPilot-plugin`) that runs ins
 
 **Key directories:**
 ```
-/opt/showpilot/                  (prod LXC) or /app/ (Docker)
+/opt/showpilot/                  (typical install path; or /app/ in Docker)
 ├── server.js                    — main entry, route mounting
 ├── package.json                 — version source of truth
 ├── config.js                    — host-specific config (jwtSecret, port, dbPath, showToken)
@@ -67,60 +67,50 @@ ShowPilot talks to FPP via a companion plugin (`ShowPilot-plugin`) that runs ins
 
 ---
 
-## Deployment topology
+## Typical deployment topologies
 
-Will runs **three** ShowPilot environments. Don't conflate them.
+ShowPilot is designed to run in any of:
 
-### 1. Production LXC (Proxmox)
-- Host: `192.168.1.230`, hostname still says `OpenFalcon` (cosmetic, not renamed yet)
-- Path: `/opt/showpilot/`
-- Process manager: **PM2** (process name: `showpilot`)
-- Public URL: `lightsondrake.org` / `lights.lightsondrake.org` (via Cloudflare DNS-only mode + Nginx Proxy Manager)
-- Restart: `pm2 restart showpilot`
-- Logs: `pm2 logs showpilot`
-- Show token: `f68a60ee2d903c8229c9a331af163d999b995c724be31578`
+**Production VM/LXC**
+- Runs as a long-lived service (PM2, systemd, NSSM, etc.)
+- Reverse-proxied through Nginx Proxy Manager / Caddy / Cloudflare Tunnel for HTTPS
+- The application listens on `127.0.0.1:3100` by default
 
-### 2. Docker test container (Will's Windows PC)
-- Image: `ghcr.io/showpilotfpp/showpilot:latest`
-- Container name: `sp-beta`
-- Port: host `3101` → container `3100`
-- Bind mount: `C:\Users\Will\sp-beta-data` → `/app/data`
-- Auto-update: Watchtower watches and pulls new `:latest` images
-- Restart policy: `unless-stopped`
-- Used for: testing fresh installs, restore round-trips, anything risky before prod
+**Docker container**
+- `ghcr.io/showpilotfpp/showpilot:latest` image is published on each release tag
+- Map a host port to container `3100`, bind-mount `/app/data` for persistence
+- GitHub Actions builds the image on tag push; Watchtower or similar can auto-pull `:latest`
+- Useful for testing fresh installs, restore round-trips, and risky changes before prod
 
-### 3. FPP-Main plugin (the Falcon Player itself)
-- Host: `192.168.1.247`
-- Software: FPP v10.x-master-219-g2d311770
+**FPP host (alongside the plugin)**
+- The companion plugin `ShowPilot-plugin` (separate repo) runs inside FPP
 - Plugin path: `/home/fpp/media/plugins/showpilot/`
-- Logs: `/home/fpp/media/logs/showpilot-listener.log`
-- Repo: `github.com/ShowPilotFPP/ShowPilot-plugin` (separate from the main repo)
+- Plugin includes the FPP audio daemon (`showpilot_audio.js`, port 8090) which feeds position events to ShowPilot via WebSocket
 
-### FPP Audio Daemon
-- The ShowPilot plugin also runs a separate audio daemon (`showpilot_audio.js`) on port 8090
-- Daemon log: `/home/fpp/media/logs/showpilot-audio.log`
+### FPP audio daemon
+- Runs `showpilot_audio.js` on port 8090 inside FPP
+- Logs at `/home/fpp/media/logs/showpilot-audio.log`
 - Receives playback events from FPP via a FIFO at `/tmp/SHOWPILOT_FIFO`
-- Broadcasts position updates and syncPoints to ShowPilot LXC via WebSocket
+- Broadcasts position updates and syncPoints to ShowPilot via WebSocket
 - ShowPilot relays these to viewers via Socket.io (`lib/audio-position-relay.js`)
 - Daemon writes PID to `/tmp/showpilot-audio.pid` on startup for clean restarts
 
 ### CI/CD
-- GitHub: `github.com/ShowPilotFPP/ShowPilot` (main repo) and `ShowPilotFPP/ShowPilot-plugin`
+- GitHub: [`ShowPilotFPP/ShowPilot`](https://github.com/ShowPilotFPP/ShowPilot) (main repo) and [`ShowPilotFPP/ShowPilot-plugin`](https://github.com/ShowPilotFPP/ShowPilot-plugin)
 - GitHub Actions builds Docker images on tag push and publishes to ghcr.io
-- Watchtower on the Docker host auto-pulls new `:latest`
-- Prod LXC is updated manually via `git pull + pm2 restart`
+- Operator updates production manually: `git pull && pm2 restart showpilot` (or systemd equivalent)
 
 ---
 
 ## Deployment workflow
 
-Standard release process:
+Standard release process for contributors:
 
-```powershell
-# On Will's dev machine (Windows, PowerShell)
-cd C:\dev\ShowPilot
+```bash
+# Pull latest, apply changes from a tarball or via git
+cd /path/to/your/ShowPilot/clone
 git pull origin main
-tar -xzf "$env:USERPROFILE\Downloads\showpilot-vX.Y.Z.tar.gz" --strip-components=1
+# ... make edits ...
 git add -A
 git commit -m "vX.Y.Z — description"
 git push origin main
@@ -128,82 +118,65 @@ git tag vX.Y.Z
 git push origin vX.Y.Z
 ```
 
+Production update (LXC / VM with PM2):
 ```bash
-# Deploy to prod LXC
-ssh root@192.168.1.230
 cd /opt/showpilot && git pull origin main
 pm2 restart showpilot
 pm2 logs showpilot
 ```
 
-For Docker test, watchtower auto-pulls. To force a fresh test:
-
-```powershell
+Docker test refresh:
+```bash
 docker stop sp-beta
-Remove-Item -Recurse -Force C:\Users\Will\sp-beta-data
 docker pull ghcr.io/showpilotfpp/showpilot:latest
-New-Item -ItemType Directory -Path C:\Users\Will\sp-beta-data | Out-Null
-docker run -d --name sp-beta -p 3101:3100 -v C:\Users\Will\sp-beta-data:/app/data --restart unless-stopped ghcr.io/showpilotfpp/showpilot:latest
+docker run -d --name sp-beta -p 3101:3100 \
+  -v /path/to/sp-beta-data:/app/data \
+  --restart unless-stopped \
+  ghcr.io/showpilotfpp/showpilot:latest
 ```
 
-When you ship code, package it as a tarball at `/mnt/user-data/outputs/showpilot-vX.Y.Z.tar.gz`. Will downloads, extracts over his dev clone, commits, pushes.
+### Standard tarball packaging
 
-### Standard tarball packaging commands (CRITICAL — never exclude .github)
+Tarballs are convenient for shipping updates without a full git push (e.g., to a private deploy tool):
 
 ```bash
-# ShowPilot main
 tar --exclude='showpilot/.git' \
     --exclude='showpilot/node_modules' \
     --exclude='showpilot/config.js' \
     --exclude='showpilot/data' \
     --exclude='showpilot/*.tar.gz' \
-    -czf /mnt/user-data/outputs/showpilot-vX.Y.Z.tar.gz showpilot/
-
-# ShowPilot plugin
-tar --exclude='showpilot-plugin/.git' \
-    -czf /mnt/user-data/outputs/showpilot-plugin-vX.Y.Z.tar.gz showpilot-plugin/
+    -czf showpilot-vX.Y.Z.tar.gz showpilot/
 ```
 
-Always syntax-check before packaging:
+Always sanity-check syntax before packaging:
 ```bash
-cd /home/claude/showpilot && node --check server.js && echo "OK"
-node --check /home/claude/showpilot-plugin/showpilot_audio.js && echo "Daemon OK"
+cd showpilot && node --check server.js && echo "OK"
 ```
 
-### ShipPilot
+Bump version in two places before shipping:
+- `package.json` — `"version": "X.Y.Z"`
+- `public/admin/index.html` — `<span class="app-version">vX.Y.Z</span>` near the top
 
-Will uses ShipPilot (his own tool, separate LXC) to push releases to GitHub. Each release needs a `.release.json` in the repo root:
+### Test deploys without GitHub
 
-```json
-{
-  "repo": "showpilot",
-  "version": "0.33.135",
-  "commit_message": "v0.33.135 — description",
-  "tag": "v0.33.135"
-}
-```
-
-### Testing on LXC only (no GitHub)
-
-When testing locally without pushing to GitHub, use a test tarball:
-```powershell
-scp "$env:USERPROFILE\Downloads\showpilot-test.tar.gz" root@192.168.1.230:/tmp/
-```
+When iterating locally without pushing, push a tarball straight to the host:
 ```bash
-ssh root@192.168.1.230
+scp showpilot-test.tar.gz user@host:/tmp/
+ssh user@host
 cd /opt/showpilot && tar -xzf /tmp/showpilot-test.tar.gz --strip-components=1 && pm2 restart showpilot
 ```
-Only bump the rf-compat.js cache buster (`v=NN` in `lib/viewer-renderer.js`) for test builds — don't bump the package.json version until ready to ship.
+
+Bump only the `rf-compat.js` cache buster (`v=NN` in `lib/viewer-renderer.js`) for test builds — don't bump `package.json` until you're ready to cut a real release.
 
 ---
 
 ## Audio sync architecture (v0.33.129+)
 
-This is the most complex part of ShowPilot. Read carefully before touching anything audio-related.
+This is the most complex part of ShowPilot. Read carefully before touching audio-related code.
 
 ### Overview
 
-Viewers open the ShowPilot viewer page and tap "Listen on Phone." Audio plays from ShowPilot's cache in sync with FPP's physical speakers. The goal: all phones play the same position in the song at the same wall-clock moment, matching the speakers.
+Viewers open the ShowPilot viewer page and tap "Listen on Phone." Audio plays from ShowPilot's cache in sync with FPP's physical speakers. The goal: all phones play the same position in the song at the same wall-clock moment, and that moment matches the speakers.
 
 ### Signal chain
 
@@ -211,8 +184,8 @@ Viewers open the ShowPilot viewer page and tap "Listen on Phone." Audio plays fr
 FPP hardware speakers
     ↑
 FPP plays audio file → FIFO → showpilot_audio.js daemon (port 8090)
-                                    ↓ WebSocket (ws://192.168.1.247:8090)
-                            audio-position-relay.js (on ShowPilot LXC)
+                                    ↓ WebSocket
+                            audio-position-relay.js (on ShowPilot host)
                                     ↓ Socket.io (fppPosition, fppSyncPoint events)
                             rf-compat.js (viewer browser)
                                     ↓
@@ -227,13 +200,17 @@ FPP plays audio file → FIFO → showpilot_audio.js daemon (port 8090)
 - Listens to FIFO for `MediaSyncStart`, `MediaSyncStop`, `MediaSyncPacket` events from FPP
 - Broadcasts `position` events every ~500ms via WebSocket
 - Broadcasts `syncPoint` events every ~1s (suppressed for ~1s after song change)
-- `MediaSyncStart` suppression: 1000ms. `MediaSyncPacket` song-change suppression: 800ms. setTimeout before forcing first syncPoint: 1000ms. Broadcast interval gate: 1000ms. (All reduced from original 2000ms/3100ms values in v0.13.38 to get first syncPoint at ~2s instead of ~4s.)
+- Suppression timings (reduced from older 2000ms/3100ms in v0.13.38 to land first syncPoint at ~2s instead of ~4s):
+  - `MediaSyncStart` suppression: 1000ms
+  - `MediaSyncPacket` song-change suppression: 800ms
+  - setTimeout before forcing first syncPoint: 1000ms
+  - Broadcast interval gate: 1000ms
 - Writes PID to `/tmp/showpilot-audio.pid` on startup (v0.13.39). `postStart.sh` uses it for clean kills.
-- `scripts/restart-daemon.sh` — run after plugin updates to restart daemon without full fppd restart
+- `scripts/restart-daemon.sh` — run after plugin updates to restart the daemon without a full FPP restart
 - The HTTP poll must NOT set `lastSyncPointAt` — only the FIFO handler controls syncPoint suppression
 
-**`audio-position-relay.js`** (ShowPilot LXC):
-- Connects to daemon WebSocket at `ws://192.168.1.247:8090`
+**`audio-position-relay.js`** (ShowPilot host):
+- Connects to daemon WebSocket on the FPP host (configurable)
 - Translates `position` → `io.emit('fppPosition', ...)` and `syncPoint` → `io.emit('fppSyncPoint', ...)`
 - 500ms reconnect on disconnect
 - Ping handler responds to server pings for keepalive
@@ -251,13 +228,13 @@ This is the core of multi-phone sync. Every song change goes through these steps
 
 1. **Fast-start** — audio begins playing immediately from current `fppStatus` position. No waiting. Phones may be slightly out of sync at this point.
 
-2. **SyncPoint snap** (~2s after song change) — `handleTrackChange` awaits the first `fppSyncPoint` for this song (daemon suppresses them for ~1s, first one arrives at ~2s). When it arrives, compute `snapPos` from the syncPoint's `positionSec + ageMs`. Stop the fast-start source, start a new `AudioBufferSourceNode` at `snapPos`. This is a hard cut (~20ms gap). All phones receive the same syncPoint and snap to the same position.
+2. **SyncPoint snap** (~2s after song change) — `handleTrackChange` awaits the first `fppSyncPoint` for this song. When it arrives, compute `snapPos` from the syncPoint's `positionSec + ageMs`. Stop the fast-start source, start a new `AudioBufferSourceNode` at `snapPos`. Hard cut (~20ms gap). All phones receive the same syncPoint and snap to the same position.
 
-3. **Follow-up crossfade** (500ms after snap) — one 50ms crossfade correction using a fresh `fppStatus` reading. Catches any residual error from the snap's scheduling jitter. After this, all phones should be within ~20ms of each other.
+3. **Follow-up crossfade** (500ms after snap) — one 50ms crossfade correction using a fresh `fppStatus` reading. Catches residual scheduling jitter from the snap. After this, all phones should be within ~20ms of each other.
 
 4. **Ongoing crossfade correction** — periodic check (50ms threshold, 10s cooldown) using fresh `fppStatus` (< 200ms stale). Only fires if drift exceeds threshold. Uses `snapAnchorCtxTime`/`snapAnchorPosSec` for device-clock-free drift measurement.
 
-5. **Fast calibration** — 5 samples collected starting 3s after the follow-up crossfade. Measures `audioPos - fppPos` (raw, without deviceOffset applied). Median stored as `sp_device_offset` in localStorage. Applied to `snapPos` on the next song. Recalibrates every song so speaker offset is automatically corrected. No manual `audioSyncOffsetMs` tuning needed.
+5. **Fast calibration** — 5 samples collected starting 3s after the follow-up crossfade. Measures `audioPos - fppPos` (raw, without deviceOffset applied). Median stored as `sp_device_offset` in localStorage. Applied to `snapPos` on the next song. Recalibrates every song so speaker offset is corrected automatically. No manual `audioSyncOffsetMs` tuning needed.
 
 ### Device-clock-free drift measurement (v0.33.134+)
 
@@ -290,7 +267,7 @@ While the current song plays, `rf-compat.js` prefetches and decodes the next sch
 
 ### Per-filename syncPoint resolver map (v0.33.130+)
 
-`window._pendingSyncPointResolvers` is a map keyed by `mediaName`, replacing the single `window._pendingSyncPointResolver`. Rapid song changes no longer clobber each other's resolvers — each song change registers its own slot.
+`window._pendingSyncPointResolvers` is a map keyed by `mediaName`, replacing the older single `window._pendingSyncPointResolver`. Rapid song changes no longer clobber each other's resolvers — each song change registers its own slot.
 
 ### Critical invariants — do not break
 
@@ -304,7 +281,7 @@ While the current song plays, `rf-compat.js` prefetches and decodes the next sch
 
 5. **`htmlAudio` is a compatibility shim**, not a real `HTMLAudioElement`. All playback goes through `AudioBufferSourceNode`.
 
-6. **Do not revert to HTML5 `<audio>`**. PCM-decoded Web Audio is the correct architecture.
+6. **Do not revert to HTML5 `<audio>`**. PCM-decoded Web Audio is the correct architecture (see "Architecture decisions" below).
 
 7. **Do not use `fppPositionNow` as the drift reference after snap**. Use `snapAnchorCtxTime`/`snapAnchorPosSec`. Using `fppPositionNow` re-introduces the device-clock difference problem.
 
@@ -349,43 +326,15 @@ If `fppPos` and `audioPos` differ significantly but `drift` shows ~0ms, that's e
 
 ---
 
-## Version history (recent)
-
-| Version | Change |
-|---------|--------|
-| 0.33.117 | Disable crossfade correction — devices in sync with each other at song start. |
-| 0.33.128 | Grid-quantized startup sync: `playAtServerMs = ceil((serverNow+2000)/2000)*2000`. All phones start at same 2s boundary. Fixed `syncPoint` variable undefined in htmlAudio shim. |
-| 0.33.129 | Fast-start + syncPoint snap + follow-up crossfade. `mediaName` added to `/api/now-playing-audio` response (was undefined, causing syncPoint filename match to always fail). Remove grid wait — snap fires immediately when syncPoint arrives. |
-| 0.33.130 | Per-filename syncPoint resolver map (`window._pendingSyncPointResolvers`) replaces single global. Next-song prefetch while current song plays. |
-| 0.33.131 | Re-enable PLL playbackRate correction (±0.5% max). |
-| 0.33.132 | Reduce PLL rate further to prevent overshoot. |
-| 0.33.133 | Remove noisy one-way clockOffset update from fppSyncPoint handler. High-jitter burst rejection: new burst rejected if best RTT > `bestRttEverMs * 3`. |
-| 0.33.134 | Replace PLL with PulseMesh-style crossfade correction (50ms fade, 50ms threshold, 10s cooldown). Device-clock-free drift measurement using `snapAnchorCtxTime`/`snapAnchorPosSec` — eliminates inter-device OS clock differences from sync calculation. `snapPendingUntilMs` blocks periodic crossfade during snap+follow-up window. Crossfade only fires with fresh fppStatus (< 200ms stale). |
-| 0.33.135 | Fast 5-sample calibration: measures `audioPos - fppPos` 3s after follow-up crossfade, stores median as `sp_device_offset`. Recalibrates every song. Automatically corrects speaker offset without manual `audioSyncOffsetMs` tuning. |
-
-**Plugin version history (this session):**
-| Version | Change |
-|---------|--------|
-| 0.13.37 | Reduce syncPoint suppression: MediaSyncStart 2000→1000ms, MediaSyncPacket song-change 1500→800ms, setTimeout 3100→1500ms. First syncPoint now arrives at ~3s instead of ~4s. |
-| 0.13.38 | Further reduce: broadcast interval gate 2000→1000ms, setTimeout 1500→1000ms. First syncPoint at ~2s. |
-| 0.13.39 | PID file (`/tmp/showpilot-audio.pid`) written on startup, cleaned on exit. `postStart.sh` kills via PID file first. `scripts/restart-daemon.sh` helper for post-update restarts without full fppd cycle. |
-
-**Current versions (as of May 2026):**
-- ShowPilot: v0.33.135
-- FPP Plugin / Audio Daemon: v0.13.39
-- rf-compat.js cache buster: v=70
-
----
-
 ## Architecture decisions worth knowing
 
-**Surgical secrets restore (v0.25.2):** `lib/backup.js` extracts only `jwtSecret` and `showToken` from the backup's config.js via regex. Whole-file replacement was wrong — baked in source's port and dbPath.
+**Surgical secrets restore (v0.25.2):** `lib/backup.js` extracts only `jwtSecret` and `showToken` from the backup's `config.js` via regex. Whole-file replacement was wrong — it baked in the source's port and dbPath.
 
 **Body-size routing (v0.25.4):** Backup router mounted BEFORE global `express.json()` so backup requests hit the route-level 100MB parser first. Don't move that mount.
 
 **Middleware ordering invariant (v0.25.5):** `cookieParser()` MUST run before any router that calls `requireAdmin`. Don't reorder.
 
-**In-app updater (v0.33.0):** Git-in-place, no symlink reshape. Single snapshot at `data/.snapshots/previous/`. audio-cache excluded from snapshots. Docker gated to status-only.
+**In-app updater (v0.33.0):** Git-in-place, no symlink reshape. Single snapshot at `data/.snapshots/previous/`. The audio cache is excluded from snapshots. Docker is gated to status-only.
 
 **Restart=always in systemd unit (v0.33.140):** The README's systemd service guide previously had `Restart=on-failure`. The in-app updater calls `process.exit(0)` (clean exit, code 0) to pick up new code after an update — `on-failure` does not restart on clean exits, so the updater appeared to work but left ShowPilot stopped. Fixed to `Restart=always` in v0.33.140. Users on older installs need to update their service file manually:
 ```bash
@@ -403,23 +352,17 @@ sudo systemctl daemon-reload
 
 **`window._pendingSyncPointResolver` → map (v0.33.130):** The original single global was fine for one song at a time, but rapid song changes caused the new song's setup to overwrite the previous song's resolver, leaving it permanently unresolved (8s timeout, then no snap). The per-filename map fixes this. Do not collapse back to a single global.
 
----
+**`<img class="sequence-image">` `width=` only, no `height=` (v0.33.142):** The viewer renderer emits `<img ... width="40" loading="lazy">` for sequence covers and deliberately omits a `height` attribute. The HTML `height` attribute is a presentational hint that conflicts with author CSS like `aspect-ratio: 1/1` — producing a 40px-tall horizontal slice of the source image instead of a square thumbnail. Letting the browser infer height from the source's natural aspect ratio works for both worlds: CSS-less templates get a square 40px thumbnail; modern templates with `aspect-ratio` rules get the layout they intended.
 
-## Will's context
-
-- Non-coder. Runs commands, doesn't write code himself. Give him paste-able scripts.
-- Halloween light show at 2200 South Old Missouri Road, Springdale, AR (Lights on Drake)
-- Show season: October. Off-season testing with FPP running playlists in test mode.
-- Other projects: HG Cellular (device refurb), NWAobits.com (obituaries), cal.lightsondrake.org (countdown calendar), C:\PokePricing (TCG pricing), pokedex.hgcellular.com (Amazon dashboard).
-- Prefers iterative testing — risky changes on Docker first, then prod.
-- Uses ShipPilot for all GitHub releases.
+**Viewer-page cache headers + SW navigation revalidation (v0.33.143):** The viewer page (`/`) sends `Cache-Control: no-cache, must-revalidate` so browsers don't apply heuristic caching (which can hold the rendered HTML for hours). The bundled service worker also forces `cache: 'reload'` on navigation requests — this bypasses HTTP cache for the page HTML even if a stale entry exists from before v0.33.143. Without both pieces, fresh deploys took hours to reach existing visitors because the previously-rendered HTML was sticky in browser caches and the SW's pass-through fetch went through the cache. Don't remove either piece without thinking about it: removing the response header makes future deploys slow to land; removing the SW navigation override leaves users on existing installs stuck on whatever HTML they had cached when they last loaded the page.
 
 ---
 
-## Starting a new conversation
+## Contributing
 
-1. Read this primer.
-2. Don't assume workspace has latest code. Clone fresh: `git clone https://github.com/ShowPilotFPP/ShowPilot.git /home/claude/showpilot`
-3. Check `package.json` version to confirm starting point.
-4. For continuity on a specific issue, search conversation history.
-5. Don't reinvent documented decisions. If you think one is wrong, raise it explicitly.
+1. **Read this primer.** Then skim `server.js` and `lib/viewer-renderer.js` to orient.
+2. **Don't assume your local clone is up to date.** Fresh-clone before patching: `git clone https://github.com/ShowPilotFPP/ShowPilot.git`
+3. **Check `package.json` version** to confirm what release you're starting from.
+4. **Don't reinvent documented decisions** in "Architecture decisions worth knowing" above. If you think one is wrong, raise it explicitly in an issue or PR rather than quietly changing course — the rationale that justified each decision matters.
+5. **Match the established conventions** — surgical edits, no architectural rewrites unless explicitly invited. Each release should be a coherent change.
+6. **Test what you can** before opening a PR. The audio sync code in particular benefits from dry runs against `?debug=1` in a multi-device setup.
