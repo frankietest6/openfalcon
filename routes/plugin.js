@@ -375,14 +375,22 @@ router.get('/state', (req, res) => {
     }
   }
 
-  // Snapshot the main-playlist "next" at handoff time so the viewer shows the
-  // correct return point while the interrupting song plays. Only save on the
-  // first handoff — if a second vote/request wins before the main playlist
-  // resumes, the original baseline is still where FPP will return to.
+  // Snapshot the main-playlist return point at handoff time. Which song is
+  // "next" depends on whether interrupt mode is on:
+  //   interrupt ON  → FPP pauses the current song mid-track and resumes it
+  //                   exactly where it left off, so the return point is the
+  //                   currently-playing song (sequence_name).
+  //   interrupt OFF → the current song plays to completion first, so the
+  //                   return point is the next scheduled song (next_sequence_name).
+  // Only save on the first handoff — subsequent vote/request wins before the
+  // main playlist resumes don't change where FPP will return to.
   if (response.winningVote || response.nextRequest) {
-    const npState = db.prepare('SELECT next_sequence_name, baseline_next_sequence_name FROM now_playing WHERE id = 1').get();
-    if (npState && !npState.baseline_next_sequence_name && npState.next_sequence_name) {
-      setBaselineNext(npState.next_sequence_name);
+    const npState = db.prepare('SELECT sequence_name, next_sequence_name, baseline_next_sequence_name FROM now_playing WHERE id = 1').get();
+    if (npState && !npState.baseline_next_sequence_name) {
+      const baselineName = cfg.interrupt_schedule === 1
+        ? npState.sequence_name
+        : npState.next_sequence_name;
+      if (baselineName) setBaselineNext(baselineName);
     }
   }
 
@@ -445,15 +453,6 @@ router.post('/playing', (req, res) => {
   const previouslyPlaying = db.prepare(`SELECT sequence_name FROM now_playing WHERE id = 1`).get();
   const isSequenceChange = !!name && (!previouslyPlaying || previouslyPlaying.sequence_name !== name);
 
-  // When the main playlist resumes at the expected return point, clear the
-  // baseline so subsequent "Up Next" display switches back to FPP's live report.
-  if (isSequenceChange && name) {
-    const npBaseline = db.prepare('SELECT baseline_next_sequence_name FROM now_playing WHERE id = 1').get();
-    if (npBaseline && npBaseline.baseline_next_sequence_name === name) {
-      setBaselineNext(null);
-    }
-  }
-
   // If the plugin reported a playback position, backdate started_at so the
   // audio player knows the song has been playing for that long. This handles
   // the "interrupt-then-resume" case: when FPP plays a request and then comes
@@ -469,6 +468,14 @@ router.post('/playing', (req, res) => {
     // or is FPP playing it from the schedule on its own?
     const handoffSource = consumeHandoff(name);
     const source = handoffSource || 'schedule';
+
+    // When FPP plays a scheduled song (not a viewer vote/request/PSA handoff),
+    // the main playlist has resumed. Clear the baseline so "Up Next" reverts
+    // to FPP's live report. Using source rather than name-matching handles
+    // the case where FPP resumes at an unexpected position (loop, admin skip).
+    if (isSequenceChange && source === 'schedule') {
+      setBaselineNext(null);
+    }
 
     db.prepare(`
       INSERT INTO play_history (sequence_name, played_at, source)
