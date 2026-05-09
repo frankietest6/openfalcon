@@ -19,7 +19,7 @@ Key things it does:
 
 ShowPilot talks to FPP via a companion plugin (`ShowPilot-plugin`) that runs inside FPP. The plugin syncs sequence metadata, reports playback state, and pushes interaction events.
 
-**Branding/domain context:** Will runs his show as "Lights On Drake" at lightsondrake.org. ShowPilot is the underlying software (formerly "OpenFalcon" — references to that name still appear in some config defaults).
+**Branding/domain context:** Will runs his show as "the show" at <show-domain>. ShowPilot is the underlying software (formerly "OpenFalcon" — references to that name still appear in some config defaults).
 
 ---
 
@@ -72,13 +72,13 @@ ShowPilot talks to FPP via a companion plugin (`ShowPilot-plugin`) that runs ins
 Will runs **three** ShowPilot environments. Don't conflate them.
 
 ### 1. Production LXC (Proxmox)
-- Host: `192.168.1.230`, hostname still says `OpenFalcon` (cosmetic, not renamed yet)
+- Host: `<prod-lxc-ip>`, hostname still says `OpenFalcon` (cosmetic, not renamed yet)
 - Path: `/opt/showpilot/`
 - Process manager: **PM2** (process name: `showpilot`)
-- Public URL: `lightsondrake.org` / `lights.lightsondrake.org` (via Cloudflare DNS-only mode + Nginx Proxy Manager)
+- Public URL: `<show-domain>` / `lights.<show-domain>` (via Cloudflare DNS-only mode + Nginx Proxy Manager)
 - Restart: `pm2 restart showpilot`
 - Logs: `pm2 logs showpilot`
-- Show token: `f68a60ee2d903c8229c9a331af163d999b995c724be31578`
+- Show token: `<show-token>`
 
 ### 2. Docker test container (Will's Windows PC)
 - Image: `ghcr.io/showpilotfpp/showpilot:latest`
@@ -90,7 +90,7 @@ Will runs **three** ShowPilot environments. Don't conflate them.
 - Used for: testing fresh installs, restore round-trips, anything risky before prod
 
 ### 3. FPP-Main plugin (the Falcon Player itself)
-- Host: `192.168.1.247`
+- Host: `<fpp-host-ip>`
 - Software: FPP v10.x-master-219-g2d311770
 - Plugin path: `/home/fpp/media/plugins/showpilot/`
 - Logs: `/home/fpp/media/logs/showpilot-listener.log`
@@ -130,7 +130,7 @@ git push origin vX.Y.Z
 
 ```bash
 # Deploy to prod LXC
-ssh root@192.168.1.230
+ssh root@<prod-lxc-ip>
 cd /opt/showpilot && git pull origin main
 pm2 restart showpilot
 pm2 logs showpilot
@@ -187,10 +187,10 @@ Will uses ShipPilot (his own tool, separate LXC) to push releases to GitHub. Eac
 
 When testing locally without pushing to GitHub, use a test tarball:
 ```powershell
-scp "$env:USERPROFILE\Downloads\showpilot-test.tar.gz" root@192.168.1.230:/tmp/
+scp "$env:USERPROFILE\Downloads\showpilot-test.tar.gz" root@<prod-lxc-ip>:/tmp/
 ```
 ```bash
-ssh root@192.168.1.230
+ssh root@<prod-lxc-ip>
 cd /opt/showpilot && tar -xzf /tmp/showpilot-test.tar.gz --strip-components=1 && pm2 restart showpilot
 ```
 Only bump the rf-compat.js cache buster (`v=NN` in `lib/viewer-renderer.js`) for test builds — don't bump the package.json version until ready to ship.
@@ -211,7 +211,7 @@ Viewers open the ShowPilot viewer page and tap "Listen on Phone." Audio plays fr
 FPP hardware speakers
     ↑
 FPP plays audio file → FIFO → showpilot_audio.js daemon (port 8090)
-                                    ↓ WebSocket (ws://192.168.1.247:8090)
+                                    ↓ WebSocket (ws://<fpp-host-ip>:8090)
                             audio-position-relay.js (on ShowPilot LXC)
                                     ↓ Socket.io (fppPosition, fppSyncPoint events)
                             rf-compat.js (viewer browser)
@@ -233,7 +233,7 @@ FPP plays audio file → FIFO → showpilot_audio.js daemon (port 8090)
 - The HTTP poll must NOT set `lastSyncPointAt` — only the FIFO handler controls syncPoint suppression
 
 **`audio-position-relay.js`** (ShowPilot LXC):
-- Connects to daemon WebSocket at `ws://192.168.1.247:8090`
+- Connects to daemon WebSocket at `ws://<fpp-host-ip>:8090`
 - Translates `position` → `io.emit('fppPosition', ...)` and `syncPoint` → `io.emit('fppSyncPoint', ...)`
 - 500ms reconnect on disconnect
 - Ping handler responds to server pings for keepalive
@@ -365,6 +365,7 @@ If `fppPos` and `audioPos` differ significantly but `drift` shows ~0ms, that's e
 | 0.33.146 | Baseline next-song tracking. Adds `baseline_next_sequence_name` to `now_playing`. At vote/jukebox handoff, saves FPP's current "next" as the baseline. `getNextUp` returns the baseline (tier 3) while the interrupting song plays instead of FPP's live report (which points into the voting playlist). Cleared when FPP starts the song matching the baseline. Fixes "Up Next" showing the wrong title during interruptions. |
 | 0.33.147 | Expire stale un-handed jukebox queue entries. `popNextQueuedRequest` now skips entries older than 2 hours. `cleanupStaleRequests(120)` runs every 60s alongside existing handoff cleanup. Fixes requests from earlier sessions (or made during a plugin restart) silently jumping the queue. |
 | 0.33.148 | Descriptive helper text on jukebox and voting setting checkboxes. Muted explanation lines added under each checkbox. "Hide sequence from list after played" renamed to "Hide song from the request list after it plays." "Block votes for the song that's already winning" renamed to "Block votes for the song that's already leading." Also: PRIMER.md added to repo. |
+| 0.33.149 | Emit `nextScheduled` socket event immediately after a successful jukebox request so "Up Next" updates instantly for all connected viewers instead of waiting for the next poll cycle. (`routes/viewer.js` jukebox/add handler.) |
 
 **Plugin version history (this session):**
 | Version | Change |
@@ -405,9 +406,9 @@ If `fppPos` and `audioPos` differ significantly but `drift` shows ~0ms, that's e
 ## Will's context
 
 - Non-coder. Runs commands, doesn't write code himself. Give him paste-able scripts.
-- Halloween light show at 2200 South Old Missouri Road, Springdale, AR (Lights on Drake)
+- Self-hosted synchronized light show (Halloween season).
 - Show season: October. Off-season testing with FPP running playlists in test mode.
-- Other projects: HG Cellular (device refurb), NWAobits.com (obituaries), cal.lightsondrake.org (countdown calendar), C:\PokePricing (TCG pricing), pokedex.hgcellular.com (Amazon dashboard).
+- Other projects: HG Cellular (device refurb), NWAobits.com (obituaries), countdown calendar PWA, C:\PokePricing (TCG pricing), Amazon intelligence dashboard.
 - Prefers iterative testing — risky changes on Docker first, then prod.
 - Uses ShipPilot for all GitHub releases.
 

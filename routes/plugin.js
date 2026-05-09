@@ -375,33 +375,18 @@ router.get('/state', (req, res) => {
     }
   }
 
-  // Snapshot the main-playlist return point at handoff time. Which song is
-  // "next" depends on whether interrupt mode is on:
-  //   interrupt ON  → FPP pauses the current song mid-track and resumes it
-  //                   exactly where it left off, so the return point is the
-  //                   currently-playing song (sequence_name).
-  //   interrupt OFF → the current song plays to completion first, so the
-  //                   return point is the next scheduled song (next_sequence_name).
-  // Only save on the first handoff — subsequent vote/request wins before the
-  // main playlist resumes don't change where FPP will return to.
-  res.json(response);
-
-  // Save the main-playlist return point AFTER sending the response so a
-  // DB error here can never block the FPP handoff. If this fails it's
-  // logged but jukebox/voting still works on that poll.
+  // Snapshot the main-playlist "next" at handoff time so the viewer shows the
+  // correct return point while the interrupting song plays. Only save on the
+  // first handoff — if a second vote/request wins before the main playlist
+  // resumes, the original baseline is still where FPP will return to.
   if (response.winningVote || response.nextRequest) {
-    try {
-      const npState = db.prepare('SELECT sequence_name, next_sequence_name, baseline_next_sequence_name FROM now_playing WHERE id = 1').get();
-      if (npState && !npState.baseline_next_sequence_name) {
-        const baselineName = cfg.interrupt_schedule === 1
-          ? npState.sequence_name
-          : npState.next_sequence_name;
-        if (baselineName) setBaselineNext(baselineName);
-      }
-    } catch (e) {
-      console.error('[baseline] Failed to save baseline_next_sequence_name:', e.message);
+    const npState = db.prepare('SELECT next_sequence_name, baseline_next_sequence_name FROM now_playing WHERE id = 1').get();
+    if (npState && !npState.baseline_next_sequence_name && npState.next_sequence_name) {
+      setBaselineNext(npState.next_sequence_name);
     }
   }
+
+  res.json(response);
 });
 
 // ============================================================
@@ -486,16 +471,6 @@ router.post('/playing', (req, res) => {
     // or is FPP playing it from the schedule on its own?
     const handoffSource = consumeHandoff(name);
     const source = handoffSource || 'schedule';
-
-    // When FPP plays a scheduled song (not a viewer vote/request/PSA handoff),
-    // the main playlist has resumed. Clear the baseline so "Up Next" reverts
-    // to FPP's live report. Using source rather than name-matching handles
-    // the case where FPP resumes at an unexpected position (loop, admin skip).
-    if (isSequenceChange && source === 'schedule') {
-      try { setBaselineNext(null); } catch (e) {
-        console.error('[baseline] Failed to clear baseline_next_sequence_name:', e.message);
-      }
-    }
 
     db.prepare(`
       INSERT INTO play_history (sequence_name, played_at, source)
