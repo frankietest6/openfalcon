@@ -440,10 +440,12 @@ setInterval(() => {
 }, 60 * 1000);
 
 // Periodic cleanup of stale queue entries — handed off but never confirmed.
-// Anything older than 5 minutes is marked played to keep the queue clean.
+// Anything older than 5 minutes (handed-off) or 2 hours (un-handed) is
+// marked played to keep the queue clean across plugin restarts.
 setInterval(() => {
-  const { cleanupStaleHandoffs } = require('../lib/db');
+  const { cleanupStaleHandoffs, cleanupStaleRequests } = require('../lib/db');
   cleanupStaleHandoffs(300);
+  cleanupStaleRequests(120);
 }, 60 * 1000);
 
 // ============================================================
@@ -459,6 +461,15 @@ router.post('/playing', (req, res) => {
   // (See round-close logic below.)
   const previouslyPlaying = db.prepare(`SELECT sequence_name FROM now_playing WHERE id = 1`).get();
   const isSequenceChange = !!name && (!previouslyPlaying || previouslyPlaying.sequence_name !== name);
+
+  // When the main playlist resumes at the expected return point, clear the
+  // baseline so subsequent "Up Next" display switches back to FPP's live report.
+  if (isSequenceChange && name) {
+    const npBaseline = db.prepare('SELECT baseline_next_sequence_name FROM now_playing WHERE id = 1').get();
+    if (npBaseline && npBaseline.baseline_next_sequence_name === name) {
+      setBaselineNext(null);
+    }
+  }
 
   // If the plugin reported a playback position, backdate started_at so the
   // audio player knows the song has been playing for that long. This handles
