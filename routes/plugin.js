@@ -384,17 +384,24 @@ router.get('/state', (req, res) => {
   //                   return point is the next scheduled song (next_sequence_name).
   // Only save on the first handoff — subsequent vote/request wins before the
   // main playlist resumes don't change where FPP will return to.
+  res.json(response);
+
+  // Save the main-playlist return point AFTER sending the response so a
+  // DB error here can never block the FPP handoff. If this fails it's
+  // logged but jukebox/voting still works on that poll.
   if (response.winningVote || response.nextRequest) {
-    const npState = db.prepare('SELECT sequence_name, next_sequence_name, baseline_next_sequence_name FROM now_playing WHERE id = 1').get();
-    if (npState && !npState.baseline_next_sequence_name) {
-      const baselineName = cfg.interrupt_schedule === 1
-        ? npState.sequence_name
-        : npState.next_sequence_name;
-      if (baselineName) setBaselineNext(baselineName);
+    try {
+      const npState = db.prepare('SELECT sequence_name, next_sequence_name, baseline_next_sequence_name FROM now_playing WHERE id = 1').get();
+      if (npState && !npState.baseline_next_sequence_name) {
+        const baselineName = cfg.interrupt_schedule === 1
+          ? npState.sequence_name
+          : npState.next_sequence_name;
+        if (baselineName) setBaselineNext(baselineName);
+      }
+    } catch (e) {
+      console.error('[baseline] Failed to save baseline_next_sequence_name:', e.message);
     }
   }
-
-  res.json(response);
 });
 
 // ============================================================
@@ -474,7 +481,9 @@ router.post('/playing', (req, res) => {
     // to FPP's live report. Using source rather than name-matching handles
     // the case where FPP resumes at an unexpected position (loop, admin skip).
     if (isSequenceChange && source === 'schedule') {
-      setBaselineNext(null);
+      try { setBaselineNext(null); } catch (e) {
+        console.error('[baseline] Failed to clear baseline_next_sequence_name:', e.message);
+      }
     }
 
     db.prepare(`

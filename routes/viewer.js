@@ -605,7 +605,14 @@ router.post('/jukebox/add', (req, res) => {
   db.prepare(`UPDATE config SET interactions_since_last_psa = interactions_since_last_psa + 1 WHERE id = 1`).run();
 
   const io = req.app.get('io');
-  if (io) io.emit('queueUpdated');
+  if (io) {
+    io.emit('queueUpdated');
+    // Push the new "Up Next" immediately so viewers don't wait for the next
+    // state poll to see the queue entry appear in the up-next section.
+    const np = getNowPlaying();
+    const nextUp = getNextUp(cfg, np ? np.sequence_name : null);
+    if (nextUp) io.emit('nextScheduled', { sequenceName: nextUp });
+  }
 
   res.json({ ok: true });
 });
