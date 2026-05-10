@@ -183,6 +183,8 @@ Will uses ShipPilot (his own tool, separate LXC) to push releases to GitHub. Eac
 }
 ```
 
+**Important:** `.release.json` is in `.gitignore` and is NOT committed to the repo. A fresh `git clone` won't have one. Claude must create it with `create_file` each session before packaging the tarball.
+
 ### Testing on LXC only (no GitHub)
 
 When testing locally without pushing to GitHub, use a test tarball:
@@ -366,6 +368,7 @@ If `fppPos` and `audioPos` differ significantly but `drift` shows ~0ms, that's e
 | 0.33.147 | Expire stale un-handed jukebox queue entries. `popNextQueuedRequest` now skips entries older than 2 hours. `cleanupStaleRequests(120)` runs every 60s alongside existing handoff cleanup. Fixes requests from earlier sessions (or made during a plugin restart) silently jumping the queue. |
 | 0.33.148 | Descriptive helper text on jukebox and voting setting checkboxes. Muted explanation lines added under each checkbox. "Hide sequence from list after played" renamed to "Hide song from the request list after it plays." "Block votes for the song that's already winning" renamed to "Block votes for the song that's already leading." Also: PRIMER.md added to repo. |
 | 0.33.149 | Emit `nextScheduled` socket event immediately after a successful jukebox request so "Up Next" updates instantly for all connected viewers instead of waiting for the next poll cycle. (`routes/viewer.js` jukebox/add handler.) |
+| 0.33.150 | Viewer QR code generator on the Dashboard. `GET /api/admin/qr-code` returns a server-generated PNG (via `qrcode` npm package) of the viewer URL. Card shows URL text, Copy URL button, and Download PNG button. Hidden with a prompt card when `public_base_url` isn't configured. New dependency: `qrcode ^1.5.4` — run `npm install` after pulling. |
 
 **Plugin version history (this session):**
 | Version | Change |
