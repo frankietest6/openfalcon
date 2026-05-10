@@ -369,6 +369,7 @@ If `fppPos` and `audioPos` differ significantly but `drift` shows ~0ms, that's e
 | 0.33.148 | Descriptive helper text on jukebox and voting setting checkboxes. Muted explanation lines added under each checkbox. "Hide sequence from list after played" renamed to "Hide song from the request list after it plays." "Block votes for the song that's already winning" renamed to "Block votes for the song that's already leading." Also: PRIMER.md added to repo. |
 | 0.33.149 | Emit `nextScheduled` socket event immediately after a successful jukebox request so "Up Next" updates instantly for all connected viewers instead of waiting for the next poll cycle. (`routes/viewer.js` jukebox/add handler.) |
 | 0.33.151 | Viewer QR code generator on the Dashboard. `GET /api/admin/qr-code` returns a server-generated PNG (via `qrcode` npm package) of the viewer URL. Card shows URL text, Copy URL button, and Download PNG button. Hidden with a prompt card when `public_base_url` isn't configured. New dependency: `qrcode ^1.5.4` — run `npm install` after pulling. |
+| 0.33.154 | Fix audio relay reconnect loop. `audio-position-relay.js` was calling `ws.close()` on a CONNECTING socket, triggering an immediate close event that rescheduled `connect()` every 500ms forever. Fix: skip `ws.close()` when `readyState === 0`, clear `reconnectTimer` at connect entry, guard close/error handlers against scheduling a second reconnect when one is already pending. |
 | 0.33.152 | FPP playlist cooldown suppression. When a sequence with `cooldown_minutes > 0` plays, `/api/plugin/state` now includes a `playlistPatches` array telling the plugin to set `"enabled": 0` on that entry in FPP's playlist JSON. FPP skips disabled entries in normal rotation. The plugin (v0.13.40) applies patches on each state fetch and persists re-enable timestamps to `/home/fpp/media/config/showpilot-cooldowns.json` so they survive plugin restarts. Re-enables fire promptly on each loop iteration and on startup. |
 
 **Plugin version history (this session):**
@@ -381,7 +382,7 @@ If `fppPos` and `audioPos` differ significantly but `drift` shows ~0ms, that's e
 | 0.13.41 | Fix fatal PHP crash in `applyPlaylistPatches`: patches from `ofHttp` are stdClass objects, not arrays — `$patch['key']` throws `Error` in PHP 8. Fixed to use `$patch->key` object syntax throughout. |
 
 **Current versions (as of May 2026):**
-- ShowPilot: v0.33.153
+- ShowPilot: v0.33.154
 - FPP Plugin / Audio Daemon: v0.13.41
 - rf-compat.js cache buster: v=70
 
