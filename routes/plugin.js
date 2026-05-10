@@ -386,6 +386,36 @@ router.get('/state', (req, res) => {
     }
   }
 
+  // Playlist patches (v0.33.152+): when cooldown_suppress_fpp_playlist is
+  // enabled, sequences in cooldown are disabled in FPP's playlist JSON so
+  // FPP skips them in normal rotation. Off by default -- opt-in only, since
+  // not all operators want ShowPilot reaching into their FPP playlist.
+  // Requires plugin v0.13.40+.
+  if (cfg.cooldown_suppress_fpp_playlist === 1) {
+    const cooldownCandidates = db.prepare(`
+      SELECT name, last_played_at, cooldown_minutes
+      FROM sequences
+      WHERE cooldown_minutes > 0 AND last_played_at IS NOT NULL
+    `).all();
+
+    if (cooldownCandidates.length > 0) {
+      const now = Date.now();
+      const patches = [];
+      for (const s of cooldownCandidates) {
+        const playedAt = new Date(s.last_played_at + 'Z').getTime();
+        const cooldownMs = s.cooldown_minutes * 60 * 1000;
+        const reenableAt = new Date(playedAt + cooldownMs).toISOString();
+        const inCooldown = now < (playedAt + cooldownMs);
+        patches.push({
+          sequenceName: s.name,
+          enabled: !inCooldown,
+          reenableAt: inCooldown ? reenableAt : null,
+        });
+      }
+      response.playlistPatches = patches;
+    }
+  }
+
   res.json(response);
 });
 

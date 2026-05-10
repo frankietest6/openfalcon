@@ -217,6 +217,7 @@ router.put('/config', requireAdmin, (req, res) => {
     'location_code',
     // Misc
     'hide_sequence_after_played',
+    'cooldown_suppress_fpp_playlist',
     'blocked_ips',
     // Viewer player decoration
     'player_decoration',
