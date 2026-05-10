@@ -377,10 +377,12 @@ If `fppPos` and `audioPos` differ significantly but `drift` shows ~0ms, that's e
 | 0.13.37 | Reduce syncPoint suppression: MediaSyncStart 2000→1000ms, MediaSyncPacket song-change 1500→800ms, setTimeout 3100→1500ms. First syncPoint now arrives at ~3s instead of ~4s. |
 | 0.13.38 | Further reduce: broadcast interval gate 2000→1000ms, setTimeout 1500→1000ms. First syncPoint at ~2s. |
 | 0.13.39 | PID file (`/tmp/showpilot-audio.pid`) written on startup, cleaned on exit. `postStart.sh` kills via PID file first. `scripts/restart-daemon.sh` helper for post-update restarts without full fppd cycle. |
+| 0.13.40 | FPP playlist cooldown suppression. Handles `playlistPatches` from `/state`: patches playlist JSON on disk to disable cooled-down sequences, persists re-enable timestamps to `showpilot-cooldowns.json`. |
+| 0.13.41 | Fix fatal PHP crash in `applyPlaylistPatches`: patches from `ofHttp` are stdClass objects, not arrays — `$patch['key']` throws `Error` in PHP 8. Fixed to use `$patch->key` object syntax throughout. |
 
 **Current versions (as of May 2026):**
-- ShowPilot: v0.33.148
-- FPP Plugin / Audio Daemon: v0.13.39
+- ShowPilot: v0.33.153
+- FPP Plugin / Audio Daemon: v0.13.41
 - rf-compat.js cache buster: v=70
 
 ---
@@ -404,6 +406,19 @@ If `fppPos` and `audioPos` differ significantly but `drift` shows ~0ms, that's e
 **Automatic speaker calibration (v0.33.135):** Do not add a manual `audioSyncOffsetMs` setting UI or suggest users tune it manually. The 5-sample fast calibration handles the speaker offset automatically every song. The `audioSyncOffsetMs` config value still exists for edge cases but should not need to be touched in normal operation.
 
 **`window._pendingSyncPointResolver` → map (v0.33.130):** The original single global was fine for one song at a time, but rapid song changes caused the new song's setup to overwrite the previous song's resolver, leaving it permanently unresolved (8s timeout, then no snap). The per-filename map fixes this. Do not collapse back to a single global.
+
+---
+
+## Open items / tech debt
+
+These are known but deferred. Don't fix unprompted unless they're blocking the current task.
+
+- **Cooldown suppression in voting mode** — `cooldown_minutes` currently hides sequences from the jukebox request UI during cooldown, but cooled-down sequences still appear on the voting ballot. The FPP playlist patch (v0.33.152) suppresses them in rotation regardless of mode, but the viewer-side voting UI needs the same treatment. Deferred — needs thought on UX (hide entirely vs show grayed-out with timer).
+- **`selectTemplate` draft-state bug** — `selectTemplate` in the admin UI unconditionally sets `hasDraft = false` when loading a template that has an uncommitted `draft_html`. Fix: set `hasDraft = !!tpl.draft_html` on load.
+- **Drive-In flex layout regression (v0.32.13)** — the inner wrapper `<div>` added for RFPB compatibility breaks direct-child flex assumptions in built-in canonical templates like Drive-In.
+- **Audio cache backup** — not included in backups. Decision: out of scope, audio resync is one click in the FPP plugin.
+- **LXC hostname** — still `OpenFalcon`, not renamed.
+- **GitHub Actions Node 20 deprecation** — will hit June 2 2026.
 
 ---
 
