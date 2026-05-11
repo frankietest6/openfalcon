@@ -433,6 +433,11 @@ app.get('/', (req, res) => {
       WHERE round_id = ? GROUP BY sequence_name
     `).all(cfg.current_voting_round);
 
+    // Race tap counts — only queried when race mode is active (cheap short-circuit)
+    const raceTapCounts = cfg.viewer_control_mode === 'RACE'
+      ? require('./lib/db').getRaceTapCounts()
+      : [];
+
     const queue = db.prepare(`
       SELECT sequence_name, requested_at FROM jukebox_queue
       WHERE played = 0 ORDER BY requested_at ASC
@@ -480,6 +485,7 @@ app.get('/', (req, res) => {
       config: cfg,
       sequences: sequencesBusted,
       voteCounts,
+      raceTapCounts,
       queue,
       nowPlaying: nowPlaying.sequence_name,
       nextScheduled: getNextUp(cfg, nowPlaying.sequence_name || null),

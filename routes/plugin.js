@@ -373,13 +373,26 @@ router.get('/state', (req, res) => {
       const io = req.app.get('io');
       if (io) io.emit('queueUpdated');
     }
+  } else if (cfg.viewer_control_mode === 'RACE') {
+    // Race mode: plugin v0.13.58+ handles RACE natively via the raceWinner
+    // field. Returns the winner with an interrupt flag when decided; plugin
+    // follows FPP schedule while race is running (no raceWinner field).
+    if (cfg.race_winner && !cfg.race_active) {
+      const winSeq = db.prepare(`SELECT sort_order FROM sequences WHERE name = ? LIMIT 1`).get(cfg.race_winner);
+      response.raceWinner = {
+        sequence:     cfg.race_winner,
+        playlistIndex: winSeq ? winSeq.sort_order : 0,
+        interrupt:    cfg.race_interrupt_winner === 1,
+      };
+      rememberHandoff(cfg.race_winner, 'vote');
+    }
   }
 
   // Snapshot the main-playlist "next" at handoff time so the viewer shows the
   // correct return point while the interrupting song plays. Only save on the
   // first handoff — if a second vote/request wins before the main playlist
   // resumes, the original baseline is still where FPP will return to.
-  if (response.winningVote || response.nextRequest) {
+  if (response.winningVote || response.nextRequest || response.raceWinner) {
     const npState = db.prepare('SELECT next_sequence_name, baseline_next_sequence_name FROM now_playing WHERE id = 1').get();
     if (npState && !npState.baseline_next_sequence_name && npState.next_sequence_name) {
       setBaselineNext(npState.next_sequence_name);
@@ -584,6 +597,47 @@ router.post('/playing', (req, res) => {
             candidates: tiebreakCandidates,
             reason: 'song changed before tiebreak resolved',
           });
+        }
+      }
+    }
+
+    // ---- Race mode: reset taps on every song change (v0.33.155+) ----
+    // When the winning song starts (or any song change while in RACE mode),
+    // clear all taps and start a fresh race for the new song.
+    // This also naturally handles the "prevent taps after race ends" case:
+    // resolveRace() sets race_winner and race_active=0; the tap endpoint
+    // rejects taps when race_winner is set; on the next song change we
+    // re-arm and clear the winner so tapping is allowed again.
+    const isRace = cfgForRound.viewer_control_mode === 'RACE';
+    if (isRace && isSequenceChange) {
+      const { resetRaceTaps } = require('../lib/db');
+      const viewerModule = require('./viewer');
+      const io = req.app.get('io');
+      // Re-arm: start a fresh race for this song
+      const freshEndsAt = viewerModule.startRace(cfgForRound);
+      if (io) {
+        io.emit('raceStarted', { endsAt: freshEndsAt });
+        io.emit('raceTapUpdate', { counts: [], bars: {}, leadingSequence: null });
+      }
+      // Schedule server-side timer for the new race
+      if (freshEndsAt) {
+        const ms = new Date(freshEndsAt).getTime() - Date.now();
+        if (ms > 0) {
+          const { getRaceLeader } = require('../lib/db');
+          viewerModule._raceTimerHandle = setTimeout(() => {
+            viewerModule._raceTimerHandle = null;
+            const latestCfg = getConfig();
+            if (latestCfg.race_active && !latestCfg.race_winner) {
+              const leader = getRaceLeader();
+              if (leader) {
+                const seqRow = db.prepare(`SELECT display_name, artist FROM sequences WHERE name = ? LIMIT 1`).get(leader.sequence_name);
+                viewerModule.resolveRace(io, leader.sequence_name, seqRow?.display_name || leader.sequence_name, seqRow?.artist || '', leader.count);
+              } else {
+                db.prepare(`UPDATE config SET race_active = 0 WHERE id = 1`).run();
+                if (io) io.emit('raceEnded', { noWinner: true });
+              }
+            }
+          }, Math.max(ms, 0));
         }
       }
     }

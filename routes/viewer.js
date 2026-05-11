@@ -8,7 +8,8 @@ const express = require('express');
 const crypto = require('crypto');
 const router = express.Router();
 const config = require('../lib/config-loader');
-const { db, getConfig, getNowPlaying, getActiveViewerCount, getSequenceByName, castTiebreakVote, getNextUp } = require('../lib/db');
+const { db, getConfig, getNowPlaying, getActiveViewerCount, getSequenceByName, castTiebreakVote, getNextUp,
+        addRaceTap, getRaceTapCounts, resetRaceTaps, getRaceLeader } = require('../lib/db');
 const { bustCoverUrl } = require('../lib/cover-art');
 
 function ensureViewerToken(req, res) {
@@ -291,6 +292,14 @@ router.get('/state', (req, res) => {
       deadlineAtIso: cfg.tiebreak_deadline_at,
       startedAtIso: cfg.tiebreak_started_at,
     } : null,
+    // Race mode state (v0.33.155+)
+    race: cfg.viewer_control_mode === 'RACE' ? {
+      active: cfg.race_active === 1,
+      endsAt: cfg.race_ends_at || null,
+      winner: cfg.race_winner || null,
+      targetTaps: cfg.race_target_taps || 0,
+      tapCounts: getRaceTapCounts(),
+    } : null,
   });
 });
 
@@ -508,6 +517,106 @@ router.post('/tiebreak-vote', (req, res) => {
 
   res.json({ ok: true });
 });
+
+// ============================================================
+// Race mode tap (v0.33.155+)
+// POST /api/race/tap  { sequenceName }
+// No uniqueness restriction — one viewer can tap many times.
+// ============================================================
+
+// Race timer handle. One global per process — only one race can be active.
+let _raceTimerHandle = null;
+
+function clearRaceTimer() {
+  if (_raceTimerHandle) {
+    clearTimeout(_raceTimerHandle);
+    _raceTimerHandle = null;
+  }
+}
+
+// Called when a winner is decided (timer expiry or target hit).
+// Writes the winner to config, emits raceWinner socket event,
+// disables tap buttons client-side.
+function resolveRace(io, winnerName, winnerDisplayName, winnerArtist, tapCount) {
+  clearRaceTimer();
+  db.prepare(`UPDATE config SET race_active = 0, race_winner = ? WHERE id = 1`).run(winnerName);
+  if (io) {
+    io.emit('raceWinner', {
+      sequenceName: winnerName,
+      displayName:  winnerDisplayName,
+      artist:       winnerArtist || '',
+      tapCount,
+    });
+  }
+}
+
+// Start a new race: reset taps, write config timestamps, set race_active=1.
+// Called by admin reset-race endpoint and automatically on mode switch to RACE.
+function startRace(cfg) {
+  clearRaceTimer();
+  resetRaceTaps();
+  const now = new Date();
+  let endsAt = null;
+  if (!cfg.race_end_on_sequence_end && cfg.race_duration_seconds > 0) {
+    endsAt = new Date(now.getTime() + cfg.race_duration_seconds * 1000).toISOString();
+  }
+  db.prepare(`
+    UPDATE config SET
+      race_active = 1,
+      race_started_at = ?,
+      race_ends_at = ?,
+      race_winner = NULL
+    WHERE id = 1
+  `).run(now.toISOString(), endsAt);
+  return endsAt;
+}
+
+router.post('/race/tap', (req, res) => {
+  const cfg = runSafeguards(req, res, 'RACE');
+  if (!cfg) return;
+
+  // If a winner is already decided (race ended, waiting for song change), reject taps
+  if (cfg.race_winner || !cfg.race_active) {
+    return res.status(400).json({ error: 'Race is not active' });
+  }
+
+  const { sequenceName } = req.body || {};
+  if (!sequenceName) return res.status(400).json({ error: 'sequenceName required' });
+
+  const seq = getSequenceByName(sequenceName);
+  if (!seq || !seq.visible) return res.status(404).json({ error: 'Sequence not found' });
+
+  const viewerToken = ensureViewerToken(req, res);
+  addRaceTap(sequenceName, viewerToken);
+
+  const counts = getRaceTapCounts();
+  const io = req.app.get('io');
+
+  // Compute bars: highest tap count is 100%, others scale from that
+  const maxTaps = counts.length > 0 ? counts[0].count : 1;
+  const bars = {};
+  counts.forEach(r => { bars[r.sequence_name] = Math.round((r.count / maxTaps) * 100); });
+
+  if (io) {
+    io.emit('raceTapUpdate', { counts, bars, leadingSequence: counts[0]?.sequence_name || null });
+  }
+
+  // Check target-taps win condition
+  const targetTaps = cfg.race_target_taps || 0;
+  if (targetTaps > 0) {
+    const leader = counts[0];
+    if (leader && leader.count >= targetTaps) {
+      const winSeq = getSequenceByName(leader.sequence_name);
+      resolveRace(io, leader.sequence_name, winSeq?.display_name || leader.sequence_name, winSeq?.artist || '', leader.count);
+      return res.json({ ok: true, winner: leader.sequence_name });
+    }
+  }
+
+  res.json({ ok: true });
+});
+
+// POST /api/race/start  (admin only via viewer route guard would be wrong — see admin route)
+// POST /api/race/reset  (admin-only; see routes/admin.js)
 
 router.post('/jukebox/add', (req, res) => {
   const cfg = runSafeguards(req, res, 'JUKEBOX');
@@ -1113,3 +1222,16 @@ router.get('/audio-stream/:sequence', async (req, res) => {
 });
 
 module.exports = router;
+// Attach race helpers directly on the router object so admin.js can
+// destructure them via require('./viewer'). Module caching means this
+// is safe — the same object is returned every time.
+router.startRace = startRace;
+router.clearRaceTimer = clearRaceTimer;
+router.resolveRace = resolveRace;
+// Expose timer handle so admin.js can store setTimeout handles here
+// and clearRaceTimer() can cancel them correctly via the shared variable.
+Object.defineProperty(router, '_raceTimerHandle', {
+  get: () => _raceTimerHandle,
+  set: (v) => { _raceTimerHandle = v; },
+  configurable: true,
+});
