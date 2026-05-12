@@ -85,16 +85,17 @@
     font-style: italic;
     font-size: clamp(56px, 12vw, 120px);
     line-height: 0.95;
-    color: transparent;
+    /* Solid fill prevents glow from bleeding through letter gaps */
+    color: var(--bg-deep);
     -webkit-text-stroke: 2px var(--pink);
     text-shadow:
-      0 0 4px var(--pink),
-      0 0 10px var(--pink),
-      0 0 24px var(--pink-soft),
-      4px 4px 0 var(--cyan);
+      0 0 3px var(--pink),
+      0 0 8px var(--pink),
+      3px 3px 0 var(--cyan);
     letter-spacing: 0.04em;
     text-transform: uppercase;
     transform: skewX(-8deg);
+    paint-order: stroke fill;
   }
   .title-block .underbar {
     display: block;
