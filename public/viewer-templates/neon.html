@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- 1. BROWSER TAB TITLE — shown in browser tabs and bookmarks -->
 <title>Neon Light Show</title>
 <style>
   /* ============================================================
@@ -377,13 +378,22 @@
 </style>
 </head>
 <body>
+<!-- ═══════════════════════════════════════════════════════
+     CUSTOMISE YOUR SHOW
+     Change the three items below to match your show.
+     ═══════════════════════════════════════════════════════ -->
+
   <div class="stage">
     <header class="title-block">
       <p class="pretitle">Tonight Only</p>
-      <h1>Light Show</h1>
+        <!-- 2. SHOW NAME — the big headline visitors see first -->
+        <h1>Light Show</h1>
       <span class="underbar"></span>
     </header>
-
+    <!-- 3. AFTER-HOURS MESSAGE — shown when viewer control is set to OFF
+       Edit the heading and paragraph text. Keep the surrounding HTML tags.
+       The {after-hours-message} attribute makes the platform show/hide this
+       block automatically — do not remove it. -->
     <div {after-hours-message}>
       <div class="neon-closed">
         <div class="closed-glyph">⚡</div>

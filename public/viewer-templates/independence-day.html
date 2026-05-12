@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- 1. BROWSER TAB TITLE — shown in browser tabs and bookmarks -->
 <title>Independence Day Light Show</title>
 <style>
   /* ============================================================
@@ -402,16 +403,25 @@
 </style>
 </head>
 <body>
+<!-- ═══════════════════════════════════════════════════════
+     CUSTOMISE YOUR SHOW
+     Change the three items below to match your show.
+     ═══════════════════════════════════════════════════════ -->
+
   <div class="stage">
     <div class="stripes-bar"></div>
 
     <header class="heading">
       <p class="preheading">Tonight ★ Live ★ For You</p>
-      <h1>Stars &amp; Stripes</h1>
+        <!-- 2. SHOW NAME — the big headline visitors see first -->
+        <h1>Stars &amp; Stripes</h1>
       <div class="stars">★ ★ ★ ★ ★</div>
       <p class="underline">A Light Show Spectacular</p>
     </header>
-
+    <!-- 3. AFTER-HOURS MESSAGE — shown when viewer control is set to OFF
+       Edit the heading and paragraph text. Keep the surrounding HTML tags.
+       The {after-hours-message} attribute makes the platform show/hide this
+       block automatically — do not remove it. -->
     <div {after-hours-message}>
       <div class="liberty-closed">
         <div class="closed-glyph">🎆</div>

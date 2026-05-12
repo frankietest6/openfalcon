@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- 1. BROWSER TAB TITLE — shown in browser tabs and bookmarks -->
 <title>Drive-In Light Show</title>
 <style>
   /* ============================================================
@@ -375,15 +376,24 @@
 </style>
 </head>
 <body>
+<!-- ═══════════════════════════════════════════════════════
+     CUSTOMISE YOUR SHOW
+     Change the three items below to match your show.
+     ═══════════════════════════════════════════════════════ -->
+
   <div class="bulbs"></div>
 
   <div class="stage">
     <header class="marquee-top">
       <p class="small">Tonight's Feature Presentation</p>
-      <h1 class="big">Now Showing</h1>
+        <!-- 2. SHOW NAME — the big headline visitors see first -->
+        <h1 class="big">Now Showing</h1>
       <span class="underline">A Holiday Light Spectacular</span>
     </header>
-
+    <!-- 3. AFTER-HOURS MESSAGE — shown when viewer control is set to OFF
+       Edit the heading and paragraph text. Keep the surrounding HTML tags.
+       The {after-hours-message} attribute makes the platform show/hide this
+       block automatically — do not remove it. -->
     <div {after-hours-message}>
       <div class="marquee-closed">
         <div class="closed-glyph">🎬</div>
