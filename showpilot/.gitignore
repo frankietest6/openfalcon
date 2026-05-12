@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+
+# Local config (contains showToken, jwtSecret)
+config.js
+
+# Database files
+data/
+*.db
+*.db-journal
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+logs/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.vscode/
+.idea/
+
+# Build artifacts
+dist/
+build/
+*.tar.gz
+
+# ShipPilot release manifest (never committed; defense in depth)
+.release.json
+
+# Environment
+.env
+.env.local

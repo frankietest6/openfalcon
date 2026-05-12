@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Light Show</title>
+  <link rel="icon" type="image/svg+xml" href="/favicons/favicon-monogram.svg">
+  <link rel="alternate icon" href="/favicons/favicon-monogram.svg">
+  <link rel="stylesheet" href="/viewer.css" />
+</head>
+<body>
+  <main class="viewer">
+    <header>
+      <h1 id="showName">Light Show</h1>
+      <div class="status">
+        <span id="viewerCount">0</span> watching now
+      </div>
+    </header>
+
+    <section class="now-playing">
+      <h2>Now Playing</h2>
+      <div id="nowPlayingName" class="now-playing-name">—</div>
+      <!-- v0.32.8+: Up Next is no longer jukebox-only. In voting mode this
+           shows the current vote leader; in OFF mode it shows the next
+           scheduled sequence. The server computes the right value for
+           every mode and returns it as nextScheduled. -->
+      <div class="up-next-row">
+        <span class="up-next-label">Up Next:</span>
+        <span id="nextUpName" class="up-next-name">—</span>
+      </div>
+    </section>
+
+    <section id="modeVoting" class="mode hidden">
+      <h2>Vote for the Next Song</h2>
+      <p class="hint">Pick one. Most votes wins.</p>
+      <ul id="voteList" class="sequence-list"></ul>
+    </section>
+
+    <section id="modeJukebox" class="mode hidden">
+      <h2>Request a Song</h2>
+      <p class="hint">Add your pick to the queue.</p>
+      <ul id="jukeboxList" class="sequence-list"></ul>
+      <h3>Queue</h3>
+      <ol id="queueList" class="queue-list"></ol>
+    </section>
+
+    <section id="modeOff" class="mode hidden">
+      <h2>Viewer Control Paused</h2>
+      <p>Enjoy the show!</p>
+    </section>
+
+    <footer>
+      <small>Powered by ShowPilot</small>
+    </footer>
+  </main>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/viewer.js?v=0.5.1"></script>
+</body>
+</html>

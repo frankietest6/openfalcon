@@ -1,0 +1,192 @@
+/* ShowPilot default viewer styles. Edit freely. */
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: radial-gradient(ellipse at top, #1a1f3a 0%, #0a0a15 70%);
+  color: #e8e8f0;
+  min-height: 100vh;
+  padding: 1rem;
+}
+
+.viewer {
+  max-width: 600px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+header {
+  text-align: center;
+  margin-bottom: 2rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+}
+
+h1 {
+  font-size: 1.8rem;
+  font-weight: 700;
+  background: linear-gradient(90deg, #ff6b9d, #c4b5fd);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  margin-bottom: 0.5rem;
+}
+
+.status {
+  color: #9a9ab0;
+  font-size: 0.9rem;
+}
+
+h2 {
+  font-size: 1.2rem;
+  margin-bottom: 0.5rem;
+  color: #c4b5fd;
+}
+
+h3 {
+  font-size: 1rem;
+  margin-top: 1.5rem;
+  margin-bottom: 0.5rem;
+  color: #9a9ab0;
+}
+
+.now-playing {
+  background: rgba(255, 107, 157, 0.1);
+  border: 1px solid rgba(255, 107, 157, 0.3);
+  padding: 1.5rem;
+  border-radius: 12px;
+  margin-bottom: 2rem;
+  text-align: center;
+}
+
+.now-playing-name {
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin-top: 0.5rem;
+}
+
+/* v0.32.8+: Up Next row, always visible (jukebox/voting/off all have a
+   meaningful "next" value). Sits below the Now Playing name in the same
+   card. Smaller and lighter than the Now Playing line so the eye's drawn
+   to the current song first. */
+.up-next-row {
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(255, 107, 157, 0.2);
+  font-size: 0.95rem;
+  display: flex;
+  justify-content: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.up-next-label {
+  color: #9a9ab0;
+}
+
+.up-next-name {
+  color: #e8e8f0;
+  font-weight: 500;
+}
+
+.mode {
+  margin-top: 2rem;
+}
+
+.mode.hidden {
+  display: none;
+}
+
+.hint {
+  color: #9a9ab0;
+  font-size: 0.9rem;
+  margin-bottom: 1rem;
+}
+
+.sequence-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.sequence-list button {
+  width: 100%;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.1);
+  color: #e8e8f0;
+  padding: 1rem;
+  border-radius: 8px;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 1rem;
+  transition: all 0.15s;
+}
+
+.sequence-list button:hover:not(:disabled) {
+  background: rgba(196, 181, 253, 0.1);
+  border-color: rgba(196, 181, 253, 0.4);
+}
+
+.sequence-list button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* v0.32.6+: highlight the song the viewer voted for. Used when vote
+   shifting is enabled — buttons stay enabled so the user can click a
+   different song, and this style makes their current pick obvious. */
+.sequence-list button.voted {
+  background: rgba(196, 181, 253, 0.18);
+  border-color: rgba(196, 181, 253, 0.6);
+  box-shadow: 0 0 0 2px rgba(196, 181, 253, 0.25);
+}
+
+.vote-count {
+  background: rgba(196, 181, 253, 0.2);
+  padding: 0.2rem 0.6rem;
+  border-radius: 12px;
+  font-size: 0.85rem;
+  color: #c4b5fd;
+}
+
+.queue-list {
+  list-style: none;
+  counter-reset: queue;
+}
+
+.queue-list li {
+  padding: 0.5rem;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  counter-increment: queue;
+}
+
+.queue-list li::before {
+  content: counter(queue) '. ';
+  color: #9a9ab0;
+  margin-right: 0.5rem;
+}
+
+footer {
+  margin-top: 3rem;
+  text-align: center;
+  color: #555;
+  font-size: 0.8rem;
+}
+
+.toast {
+  position: fixed;
+  bottom: 2rem;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0,0,0,0.9);
+  color: white;
+  padding: 0.75rem 1.5rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  z-index: 1000;
+}

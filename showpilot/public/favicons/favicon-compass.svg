@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Background circle: navy, matches your AI logo -->
+  <circle cx="16" cy="16" r="15" fill="#1a3a5c"/>
+  <!-- Inner ring: subtle border highlight -->
+  <circle cx="16" cy="16" r="13" fill="none" stroke="#0e2742" stroke-width="1"/>
+  <!-- Compass needle pointing up-and-slightly-right (north-north-east, classic compass pose) -->
+  <!-- Amber upper half (the "pointer") -->
+  <path d="M 16 5 L 13 16 L 19 16 Z" fill="#f5b041"/>
+  <!-- Navy lower half (the "tail") -->
+  <path d="M 16 27 L 13 16 L 19 16 Z" fill="#a8c4e0"/>
+  <!-- Center pivot dot -->
+  <circle cx="16" cy="16" r="2" fill="#0e2742"/>
+</svg>

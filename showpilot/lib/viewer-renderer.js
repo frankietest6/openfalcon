@@ -79,13 +79,10 @@ function computeInitialTimerText(startedAtIso, durationSeconds) {
 // The server renders initial tap counts; rf-compat.js updates them live
 // via raceTapUpdate socket events without a full page reload.
 // `tapCounts` is a plain object: sequenceName → count.
-function renderRaceGrid(sequences, tapCounts, cfg) {
+function renderRaceGrid(sequences, tapCounts) {
   if (!sequences.length) return '<div class="race-empty">No songs in the race yet.</div>';
-  const defaultText = 'Tap your favourite song as many times as you want — most taps wins!';
-  const instructionText = (cfg && cfg.race_instructions_text) ? cfg.race_instructions_text : defaultText;
-  const fontSize = (cfg && cfg.race_font_size) ? cfg.race_font_size : '0.9em';
-  const instructions = `<div class="race-instructions" style="font-size:${escapeHtml(fontSize)}">
-  <p>${escapeHtml(instructionText)}</p>
+  const instructions = `<div class="race-instructions">
+  <p>Tap your favourite song as many times as you want — most taps wins!</p>
 </div>`;
   const rows = sequences.map(seq => {
     const safeNameJs   = escapeJsString(seq.name);
@@ -115,10 +112,10 @@ function renderRaceGrid(sequences, tapCounts, cfg) {
   return instructions + rows;
 }
 
-function renderPlaylistGrid(sequences, mode, voteCounts, raceTapCounts, cfg) {
+function renderPlaylistGrid(sequences, mode, voteCounts, raceTapCounts) {
   // raceTapCounts is only populated in RACE mode — a map of sequenceName → tapCount
   if (mode === 'RACE') {
-    return renderRaceGrid(sequences, raceTapCounts || {}, cfg);
+    return renderRaceGrid(sequences, raceTapCounts || {});
   }
   // Emits markup that satisfies BOTH the canonical Remote Falcon class
   // spec AND the third-party RF Page Builder runtime conventions
@@ -234,7 +231,7 @@ function renderQueue(queue, sequences) {
 // `<div ... data-showpilot-container="X">`. Emit the matching
 // markup. If no enclosing container is found, fall back to the
 // active mode (single-mode templates work this way).
-function substitutePlaylistsContextAware(html, sequences, activeMode, voteCountsMap, raceTapCountsMap, cfg) {
+function substitutePlaylistsContextAware(html, sequences, activeMode, voteCountsMap, raceTapCountsMap) {
   const placeholder = '{PLAYLISTS}';
   const parts = [];
   let cursor = 0;
@@ -262,7 +259,7 @@ function substitutePlaylistsContextAware(html, sequences, activeMode, voteCounts
     // tap-button grid is what's actually emitted into all slots.
     const slotMode = activeMode === 'RACE' ? 'RACE' : (detectEnclosingContainerMode(accum) || activeMode);
 
-    parts.push(renderPlaylistGrid(sequences, slotMode, voteCountsMap, raceTapCountsMap, cfg));
+    parts.push(renderPlaylistGrid(sequences, slotMode, voteCountsMap, raceTapCountsMap));
     cursor = idx + placeholder.length;
   }
 
@@ -561,7 +558,7 @@ function renderTemplate(template, state) {
     html = html.split('{PLAYLISTS}').join('');
     const raceGridHtml =
       `<div id="showpilot-race-grid" style="max-width:720px;margin:0 auto;padding:8px 16px;position:relative;z-index:10;">` +
-      renderRaceGrid(state.sequences || [], raceTapCountsMap, cfg) +
+      renderRaceGrid(state.sequences || [], raceTapCountsMap) +
       `</div>`;
     // Prefer injecting inside .wrapper so the race UI sits in the natural
     // content flow of the template (above the footer, inside any background
@@ -595,8 +592,7 @@ function renderTemplate(template, state) {
       state.sequences || [],
       mode,
       voteCountsMap,
-      raceTapCountsMap,
-      cfg
+      raceTapCountsMap
     );
   }
 
@@ -1021,12 +1017,10 @@ html { overflow-x: hidden; }
 }
 .race-instructions p { margin: 0; }
 </style>`;
-    if (!cfg.race_use_template_css) {
-      if (html.includes('</head>')) {
-        html = html.replace('</head>', raceCss + '</head>');
-      } else {
-        html = raceCss + html;
-      }
+    if (html.includes('</head>')) {
+      html = html.replace('</head>', raceCss + '</head>');
+    } else {
+      html = raceCss + html;
     }
   }
   // Socket.io client is needed for live position updates from the

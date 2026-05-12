@@ -220,9 +220,6 @@ router.put('/config', requireAdmin, (req, res) => {
     'race_end_on_sequence_end',
     'race_target_taps',
     'race_interrupt_winner',
-    'race_instructions_text',
-    'race_font_size',
-    'race_use_template_css',
     // race_active, race_started_at, race_ends_at, race_winner are
     // server-managed runtime state — NOT whitelisted here.
     // Misc

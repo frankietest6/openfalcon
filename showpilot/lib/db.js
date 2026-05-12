@@ -440,10 +440,6 @@ const configMigrations = [
   ['race_end_on_sequence_end','INTEGER DEFAULT 0'],    // 1 = ignore timer, end when song ends
   ['race_target_taps',        'INTEGER DEFAULT 0'],    // 0 = pure time-limit; >0 = first to N wins
   ['race_interrupt_winner',   'INTEGER DEFAULT 0'],    // 1 = interrupt immediately; 0 = wait for song end
-  // Race viewer customisation (v0.33.161+)
-  ['race_instructions_text',  'TEXT'],                 // custom instruction paragraph; null = use default
-  ['race_font_size',          "TEXT DEFAULT '0.9em'"], // CSS font-size for race instructions block
-  ['race_use_template_css',   'INTEGER DEFAULT 0'],    // 1 = skip ShowPilot's injected race CSS; let template handle it
   // Server-managed race runtime state (not admin-settable via PUT /config)
   ['race_active',             'INTEGER DEFAULT 0'],    // 1 while a race is in progress
   ['race_started_at',         'TEXT'],                 // ISO timestamp race started

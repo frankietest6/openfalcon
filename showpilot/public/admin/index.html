@@ -407,7 +407,6 @@
     }
     .mode-pill.voting { background: var(--rgb-red); color: #fff; box-shadow: 0 0 12px var(--accent-soft); }
     .mode-pill.jukebox { background: var(--rgb-blue); color: #fff; box-shadow: 0 0 12px rgba(59,130,246,0.3); }
-    .mode-pill.race { background: #f59e0b; color: #000; box-shadow: 0 0 12px rgba(245,158,11,0.4); }
     .mode-pill.off { background: var(--status-neutral); color: #fff; }
     .header-spacer { margin-left: auto; }
     /* "Show" link in admin header — opens the viewer in a new tab.
@@ -1825,7 +1824,7 @@
           <rect class="lp" x="8"   y="-3"  width="5" height="5" rx="1"/>
         </svg>
         <span class="app-brand-text">ShowPilot</span>
-        <span class="app-version">v0.33.161</span>
+        <span class="app-version">v0.33.156</span>
       </span>
       <span id="modePill" class="mode-pill off">OFF</span>
       <span class="header-spacer"></span>
@@ -2816,39 +2815,6 @@
             </div>
             <p class="muted" style="font-size: 0.8rem; margin: 0.2rem 0 0 1.75rem;">
               When off (default), the winner plays after the current song finishes — same behaviour as Voting mode.
-            </p>
-
-            <h3 style="margin-top: 1.5rem;">Viewer instructions</h3>
-            <p class="muted" style="font-size: 0.85rem; margin: 0 0 0.75rem;">
-              Text shown to viewers above the tap buttons when a race is active.
-            </p>
-            <textarea id="cfg_race_instructions_text" rows="3"
-                      placeholder="Tap your favourite song as many times as you want — most taps wins!"
-                      oninput="clearTimeout(this._t); this._t = setTimeout(() => saveSetting('race_instructions_text', this.value.trim() || null), 600)"
-                      style="width: 100%; resize: vertical; font-family: inherit; font-size: 0.9rem;"></textarea>
-            <p class="muted" style="font-size: 0.8rem; margin: 0.25rem 0 0;">
-              Leave blank to use the default text. Plain text only — no HTML.
-            </p>
-
-            <h3 style="margin-top: 1.25rem;">Instruction font size</h3>
-            <div class="row" style="align-items: center; gap: 10px;">
-              <label for="cfg_race_font_size" style="margin: 0;">Font size (CSS value):</label>
-              <input type="text" id="cfg_race_font_size" placeholder="0.9em"
-                     onchange="saveSetting('race_font_size', this.value.trim() || '0.9em')"
-                     style="max-width: 100px;" />
-              <span class="muted" style="font-size: 0.8rem;">e.g. 0.9em, 14px, 1rem</span>
-            </div>
-
-            <h3 style="margin-top: 1.25rem;">Race styling</h3>
-            <div class="row">
-              <input type="checkbox" id="cfg_race_use_template_css"
-                     onchange="saveSetting('race_use_template_css', this.checked ? 1 : 0)" />
-              <label for="cfg_race_use_template_css" style="margin: 0;">Use template CSS for race UI (skip ShowPilot's built-in race styles)</label>
-            </div>
-            <p class="muted" style="font-size: 0.8rem; margin: 0.2rem 0 0 1.75rem;">
-              When on, ShowPilot does not inject its own race stylesheet — your viewer template's CSS controls the look entirely.
-              Use this if you've added custom <code>.race-row</code>, <code>.race-tap-btn</code>, etc. rules to your template.
-              When off (default), ShowPilot injects sensible default styles that work with any template.
             </p>
           </div>
 
@@ -4932,9 +4898,6 @@
       setVal('cfg_race_duration_seconds', c.race_duration_seconds || 60);
       setVal('cfg_race_target_taps', c.race_target_taps || 0);
       setChk('cfg_race_interrupt_winner', c.race_interrupt_winner);
-      setVal('cfg_race_instructions_text', c.race_instructions_text || '');
-      setVal('cfg_race_font_size', c.race_font_size || '0.9em');
-      setChk('cfg_race_use_template_css', c.race_use_template_css);
       updateRaceDurationVisibility();
       setChk('cfg_play_psa_enabled', c.play_psa_enabled);
       setVal('cfg_psa_frequency', c.psa_frequency);

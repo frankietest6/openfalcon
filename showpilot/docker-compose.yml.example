@@ -1,0 +1,76 @@
+# ============================================================
+# ShowPilot — docker-compose example
+# ============================================================
+# Copy this file to docker-compose.yml and edit to taste, then:
+#
+#     docker compose up -d
+#
+# ShowPilot works out of the box with no config file. Secrets
+# (jwtSecret, showToken) are auto-generated on first run and
+# persisted to the data volume at /app/data/secrets.json.
+#
+# Watch the logs on first run — the auto-generated show token
+# is printed once. You'll paste it into the FPP plugin config:
+#
+#     docker compose logs -f
+#
+# Things you'll likely change:
+#   - The host port (left side of "3100:3100") if 3100 is taken
+#   - The data volume path (./showpilot-data) — use absolute paths
+#     if you prefer
+#   - The image tag (use :0.18.14 to pin, or :latest for the
+#     newest version with `docker compose pull`)
+#
+# Optional: provide a config.js to override defaults. See the
+# commented config volume mount below.
+#
+# Optional: inject secrets via environment variables — useful for
+# Docker Secrets, Kubernetes, or anywhere you want secrets out of
+# disk. See the commented `environment:` block below.
+# ============================================================
+
+services:
+  showpilot:
+    container_name: showpilot
+
+    # Pull a prebuilt multi-arch image from GitHub Container Registry.
+    # Supports linux/amd64 (x86 mini-PCs, NUCs) and linux/arm64 (Raspberry Pi
+    # 4/5, Apple Silicon). Docker auto-selects the right architecture.
+    image: ghcr.io/showpilotfpp/showpilot:latest
+
+    # Alternative: build the image from source instead of pulling.
+    # Useful for developing against a local checkout, or for self-hosters who
+    # prefer to build their own images. Comment out the `image:` line above
+    # and uncomment this block.
+    # build: .
+
+    restart: unless-stopped
+
+    ports:
+      # Host:Container. Change the left side if 3100 is in use.
+      - "3100:3100"
+
+    volumes:
+      # Database, cover art, and auto-generated secrets.json
+      - ./showpilot-data:/app/data
+
+      # OPTIONAL: mount a config.js to override defaults (port, trustProxy,
+      # session lengths, etc). Uncomment if you've created showpilot-config/config.js.
+      # - ./showpilot-config/config.js:/app/config.js:ro
+
+    # OPTIONAL: inject secrets via environment variables. These take
+    # precedence over both config.js and any auto-generated secrets.
+    # Useful for Docker Secrets, Kubernetes Secrets, or .env files.
+    # environment:
+    #   SHOWPILOT_JWT_SECRET: "${SHOWPILOT_JWT_SECRET}"
+    #   SHOWPILOT_SHOW_TOKEN: "${SHOWPILOT_SHOW_TOKEN}"
+
+    # Optional: if you're behind a reverse proxy (Nginx Proxy Manager, Traefik,
+    # Caddy) on the same Docker host, add a network here so the proxy can reach
+    # the container by name. Otherwise the published port above is fine.
+    # networks:
+    #   - proxy
+
+# networks:
+#   proxy:
+#     external: true
