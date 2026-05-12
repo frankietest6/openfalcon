@@ -956,7 +956,7 @@ router.post('/sync-sequences', (req, res) => {
 
 // ============================================================
 // POST /api/plugin/viewer-mode
-// Body: { mode: "VOTING" | "JUKEBOX" | "OFF" | "ON" }
+// Body: { mode: "VOTING" | "JUKEBOX" | "RACE" | "OFF" | "ON" }
 //
 // Special cases:
 //   mode = "ON"  — restore viewer control to the last non-OFF mode
@@ -964,16 +964,21 @@ router.post('/sync-sequences', (req, res) => {
 //                  hardcode a voting vs jukebox choice)
 //   mode = "OFF" — also stashes the current mode so ON can restore it
 //
+// RACE mode activates tap-as-fast-as-you-can competitive voting.
+// The race timer and settings are configured in the ShowPilot admin UI;
+// this command simply switches the viewer_control_mode to RACE so the
+// scheduler can trigger a race at a specific playlist position.
+//
 // Used by FPP scheduler commands to toggle viewer control at showtime.
 // Auth: same Bearer token as other plugin endpoints.
 // ============================================================
 router.post('/viewer-mode', (req, res) => {
   const { mode: requested } = req.body || {};
-  const allowed = ['VOTING', 'JUKEBOX', 'OFF', 'ON'];
+  const allowed = ['VOTING', 'JUKEBOX', 'RACE', 'OFF', 'ON'];
 
   if (!requested || !allowed.includes(requested)) {
     return res.status(400).json({
-      error: 'mode must be VOTING, JUKEBOX, OFF, or ON',
+      error: 'mode must be VOTING, JUKEBOX, RACE, OFF, or ON',
     });
   }
 
@@ -994,7 +999,7 @@ router.post('/viewer-mode', (req, res) => {
     updateConfig(updates);
     newMode = 'OFF';
   } else {
-    // Explicit VOTING or JUKEBOX — also update last_active_mode
+    // Explicit VOTING, JUKEBOX, or RACE — also update last_active_mode
     updateConfig({ viewer_control_mode: requested, last_active_mode: requested });
     newMode = requested;
   }

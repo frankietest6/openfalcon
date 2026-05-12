@@ -371,6 +371,9 @@ If `fppPos` and `audioPos` differ significantly but `drift` shows ~0ms, that's e
 | 0.33.151 | Viewer QR code generator on the Dashboard. `GET /api/admin/qr-code` returns a server-generated PNG (via `qrcode` npm package) of the viewer URL. Card shows URL text, Copy URL button, and Download PNG button. Hidden with a prompt card when `public_base_url` isn't configured. New dependency: `qrcode ^1.5.4` — run `npm install` after pulling. |
 | 0.33.154 | Fix audio relay reconnect loop. `audio-position-relay.js` was calling `ws.close()` on a CONNECTING socket, triggering an immediate close event that rescheduled `connect()` every 500ms forever. Fix: skip `ws.close()` when `readyState === 0`, clear `reconnectTimer` at connect entry, guard close/error handlers against scheduling a second reconnect when one is already pending. |
 | 0.33.152 | FPP playlist cooldown suppression. When a sequence with `cooldown_minutes > 0` plays, `/api/plugin/state` now includes a `playlistPatches` array telling the plugin to set `"enabled": 0` on that entry in FPP's playlist JSON. FPP skips disabled entries in normal rotation. The plugin (v0.13.40) applies patches on each state fetch and persists re-enable timestamps to `/home/fpp/media/config/showpilot-cooldowns.json` so they survive plugin restarts. Re-enables fire promptly on each loop iteration and on startup. |
+| 0.33.155 | Race mode — tap-to-win competitive viewer mode. Viewers tap their chosen sequence as fast as possible; the sequence with the most taps at round end (or first to a target count) wins and plays next. New DB columns: `race_duration_seconds`, `race_end_on_sequence_end`, `race_target_taps`, `race_interrupt_winner`, `race_active`, `race_started_at`, `race_ends_at`, `race_winner`. New `race_taps` table. Admin UI: Race settings card, race progress bar visible during active race, winner animation. FPP plugin handoff via `raceWinner` field on `/api/plugin/state`. |
+| 0.33.156 | Race mode polish and FPP plugin handoff refinements. `viewer_control_mode = 'RACE'` recognized in `getNextUp()` and plugin state handler. |
+| 0.33.157 | Race mode FPP scheduler command. `POST /api/plugin/viewer-mode` now accepts `RACE` as a valid mode (alongside VOTING, JUKEBOX, OFF, ON), allowing FPP scheduler events to trigger race mode at specific playlist positions. Race mode pill added to admin header (amber/gold background). Plugin v0.13.64 ships the companion `set_mode_race.php` command. |
 
 **Plugin version history (this session):**
 | Version | Change |
@@ -380,10 +383,12 @@ If `fppPos` and `audioPos` differ significantly but `drift` shows ~0ms, that's e
 | 0.13.39 | PID file (`/tmp/showpilot-audio.pid`) written on startup, cleaned on exit. `postStart.sh` kills via PID file first. `scripts/restart-daemon.sh` helper for post-update restarts without full fppd cycle. |
 | 0.13.40 | FPP playlist cooldown suppression. Handles `playlistPatches` from `/state`: patches playlist JSON on disk to disable cooled-down sequences, persists re-enable timestamps to `showpilot-cooldowns.json`. |
 | 0.13.41 | Fix fatal PHP crash in `applyPlaylistPatches`: patches from `ofHttp` are stdClass objects, not arrays — `$patch['key']` throws `Error` in PHP 8. Fixed to use `$patch->key` object syntax throughout. |
+| 0.13.63 | Race mode support: `raceWinner` field handling in state response, interrupt-aware `effectiveInterrupt` for race winner playback. |
+| 0.13.64 | `set_mode_race.php` scheduler command. Calls `POST /api/plugin/viewer-mode` with `{ mode: "RACE" }` so FPP scheduler events can activate race mode at a specific playlist position. |
 
 **Current versions (as of May 2026):**
-- ShowPilot: v0.33.154
-- FPP Plugin / Audio Daemon: v0.13.41
+- ShowPilot: v0.33.157
+- FPP Plugin / Audio Daemon: v0.13.64
 - rf-compat.js cache buster: v=70
 
 ---
